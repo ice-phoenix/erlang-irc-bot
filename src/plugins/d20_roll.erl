@@ -26,8 +26,8 @@ terminate(_Args, _State) ->
 
 handle_event(Msg, State) ->
     case Msg of
-        {in, Ref, [_Sender,
-                   User,
+        {in, Ref, [Sender,
+                   _User,
                    <<"PRIVMSG">>,
                    <<"#",Channel/binary>>,
                    <<"!roll",Rest/binary>>]} ->
@@ -40,7 +40,7 @@ handle_event(Msg, State) ->
                     {result, Result} = d20_dice:roll(Parsed),
                     Ref:privmsg(<<"#",Channel/binary>>,
                                 io_lib:format("~s rolled ~B",
-                                              [User, Result]))
+                                              [Sender, Result]))
             end;
         _ ->
             ok
