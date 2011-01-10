@@ -1,0 +1,65 @@
+roll <- space? (simple_roll_with_mod / simple_roll) space? `
+    lists:nth(2, Node)
+`;
+
+simple_roll <- die `
+    Die = Node,
+    Modifier = {plus, 0},
+    {roll, Die, Modifier}
+`;
+
+simple_roll_with_mod <- die space? plus space? modifier:die /
+                        die space? minus space? modifier:die /
+                        die space? plus space? modifier:natural /
+                        die space? minus space? modifier:natural `
+    Die = lists:nth(1, Node),
+    Modifier = case lists:nth(3, Node) of
+        plus -> {plus, proplists:get_value(modifier, Node)};
+        minus -> {minus, proplists:get_value(modifier, Node)}
+    end,
+    {roll, Die, Modifier}
+`;
+
+die <- count:natural? "d" faces:natural `
+    FlatNode = lists:flatten(Node),
+    Count = case proplists:get_value(count, FlatNode) of
+        [] -> 1;
+        Value -> Value
+    end,
+    Faces = proplists:get_value(faces, FlatNode),
+    {die, Count, Faces}
+`;
+
+natural <- [0-9]+ `list_to_integer(Node)`;
+
+plus <- "+" `plus`;
+minus <- "-" `minus`;
+
+space <- [ ]* `space`;
+
+`
+-export([roll/1]).
+
+roll({roll, Die, {plus, Mod}}) ->
+    Roll = roll(Die),
+    Delta = roll(Mod),
+    {result, Roll + Delta};
+
+roll({roll, Die, {minus, Mod}}) ->
+    Roll = roll(Die),
+    Delta = roll(Mod),
+    {result, Roll - Delta};
+
+roll({die, Count, Faces}) ->
+    FaceList = lists:duplicate(Count, Faces),
+    lists:foldl(
+            fun(Face, Acc) ->
+                Acc + random:uniform(Face)
+            end,
+            0,
+            FaceList);
+
+roll(Integer) when is_integer(Integer) ->
+    Integer.
+`
+
