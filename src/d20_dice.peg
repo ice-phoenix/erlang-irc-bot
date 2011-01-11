@@ -1,65 +1,141 @@
-roll <- space? (simple_roll_with_mod / simple_roll) space? `
-    lists:nth(2, Node)
+roll <- space? (repeative / additive) space? tailer? `
+    Tailer = lists:nth(4, Node),
+    case Tailer of
+        [] -> {roll, lists:nth(2, Node)};
+        _ -> {fail, tokens_left}
+    end
 `;
 
-simple_roll <- die `
-    Die = Node,
-    Modifier = {plus, 0},
-    {roll, Die, Modifier}
+repeative <- natural repeat additive `
+    [Count, _, Roll] = Node,
+    {repeat, Count, Roll}
 `;
 
-simple_roll_with_mod <- die space? plus space? modifier:die /
-                        die space? minus space? modifier:die /
-                        die space? plus space? modifier:natural /
-                        die space? minus space? modifier:natural `
-    Die = lists:nth(1, Node),
-    Modifier = case lists:nth(3, Node) of
-        plus -> {plus, proplists:get_value(modifier, Node)};
-        minus -> {minus, proplists:get_value(modifier, Node)}
-    end,
-    {roll, Die, Modifier}
+additive <- multitive (plus / minus) additive / multitive `
+    case Node of
+        [Arg1, Op, Arg2] -> {Op, Arg1, Arg2};
+        Arg -> Arg
+    end
 `;
 
-die <- count:natural? "d" faces:natural `
-    FlatNode = lists:flatten(Node),
-    Count = case proplists:get_value(count, FlatNode) of
-        [] -> 1;
-        Value -> Value
-    end,
-    Faces = proplists:get_value(faces, FlatNode),
-    {die, Count, Faces}
+multitive <- element times multitive / element `
+    case Node of
+        [Arg1, Op, Arg2] -> {Op, Arg1, Arg2};
+        Arg -> Arg
+    end
+`;
+
+element <- open_brace additive close_brace / item `
+    case Node of
+        [open_brace, Arg, close_brace] -> Arg;
+        Arg -> Arg
+    end
+`;
+
+item <- space? (die / natural) space? `lists:nth(2, Node)`;
+
+die <- natural? "d" natural `
+    case Node of
+        [[], _, Faces] -> {die, 1, Faces};
+        [Count, _, Faces] -> {die, Count, Faces}
+    end
 `;
 
 natural <- [0-9]+ `list_to_integer(Node)`;
 
 plus <- "+" `plus`;
 minus <- "-" `minus`;
+times <- "*" `times`;
+repeat <- "x" `repeat`;
 
-space <- [ ]* `space`;
+open_brace <- space? "(" space? `open_brace`;
+close_brace <- space? ")" space? `close_brace`;
+
+space <- [ ]* `ignore`;
+
+tailer <- .* ~;
 
 `
--export([roll/1]).
+-export([
+    parse_and_roll/1
+]).
 
-roll({roll, Die, {plus, Mod}}) ->
-    Roll = roll(Die),
-    Delta = roll(Mod),
-    {result, Roll + Delta};
+-define(LIMIT, 100).
 
-roll({roll, Die, {minus, Mod}}) ->
-    Roll = roll(Die),
-    Delta = roll(Mod),
-    {result, Roll - Delta};
+parse_and_roll(String) ->
+    Parsed = parse(String),
+    case Parsed of
+        {fail, Reason} -> {fail, Reason};
+        _ ->
+            Results = roll(Parsed),
+            case Results of
+                {fail, Reason} -> {fail, Reason};
+                _ -> Results
+            end
+    end.
 
-roll({die, Count, Faces}) ->
+roll({roll, Tree}) ->
+    try roll_aux(Tree, [])
+    catch throw:number_too_big ->
+        {fail, number_too_big}
+    end.
+
+roll_aux({repeat, Count, Tree}, Acc) when Count > ?LIMIT ->
+    throw(number_too_big);
+
+roll_aux({repeat, Count, Tree}, Acc) when Count > 0 ->
+    roll_aux({repeat, Count - 1, Tree}, Acc ++ process_tree(Tree));
+
+roll_aux({repeat, Count, Tree}, Acc) ->
+    Acc;
+
+roll_aux(Tree, Acc) ->
+    Acc ++ process_tree(Tree).
+
+process_tree(Tree) ->
+    [process_tree_aux(Tree)].
+
+process_tree_aux({die, Count, Faces}) when Count > ?LIMIT;
+                                           Faces > ?LIMIT ->
+    throw(number_too_big);
+
+process_tree_aux({die, Count, Faces}) ->
     FaceList = lists:duplicate(Count, Faces),
-    lists:foldl(
-            fun(Face, Acc) ->
-                Acc + random:uniform(Face)
-            end,
-            0,
-            FaceList);
+    Rolls = lists:map(fun(Face) -> random:uniform(Face) end,
+                      FaceList),
+    Result = lists:foldl(fun(E, A) -> E + A end,
+                         0,
+                         Rolls),
+    {Result, "[" ++ pprint(Rolls) ++ "]"};
 
-roll(Integer) when is_integer(Integer) ->
-    Integer.
+process_tree_aux(Number) when is_integer(Number) ->
+    {Number, pprint(Number)};
+
+process_tree_aux({plus, Arg1, Arg2}) ->
+    {Res1, Desc1} = process_tree_aux(Arg1),
+    {Res2, Desc2} = process_tree_aux(Arg2),
+    {Res1 + Res2, "(" ++ Desc1 ++ " + " ++ Desc2 ++ ")"};
+
+process_tree_aux({minus, Arg1, Arg2}) ->
+    {Res1, Desc1} = process_tree_aux(Arg1),
+    {Res2, Desc2} = process_tree_aux(Arg2),
+    {Res1 - Res2, "(" ++ Desc1 ++ " - " ++ Desc2 ++ ")"};
+
+process_tree_aux({times, Arg1, Arg2}) ->
+    {Res1, Desc1} = process_tree_aux(Arg1),
+    {Res2, Desc2} = process_tree_aux(Arg2),
+    {Res1 * Res2, "(" ++ Desc1 ++ " * " ++ Desc2 ++ ")"}.    
+
+pprint(Term) ->
+    pprint_aux(Term, "").
+
+pprint_aux(Number, Str) when is_integer(Number) ->
+    Str ++ io_lib:format("~B", [Number]);
+
+pprint_aux([Number], Str) when is_integer(Number) ->
+    Str ++ io_lib:format("~B", [Number]);
+
+pprint_aux([Number | T], Str) when is_integer(Number) ->
+    pprint_aux(T, Str ++ io_lib:format("~B,", [Number])).
 `
 

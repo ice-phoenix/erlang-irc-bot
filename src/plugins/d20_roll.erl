@@ -15,6 +15,7 @@
 
 -import(random).
 -import(io_lib).
+-import(lists).
 -import(d20_dice).
 
 init(_Args) ->
@@ -31,16 +32,19 @@ handle_event(Msg, State) ->
                    <<"PRIVMSG">>,
                    <<"#",Channel/binary>>,
                    <<"!roll",Rest/binary>>]} ->
-            Parsed = d20_dice:parse(binary_to_list(Rest)),
-            case Parsed of
+            Results = d20_dice:parse_and_roll(binary_to_list(Rest)),
+            case Results of
                 {fail, _} ->
                     Ref:privmsg(<<"#",Channel/binary>>,
                                 "WTF???");
                 _ ->
-                    {result, Result} = d20_dice:roll(Parsed),
-                    Ref:privmsg(<<"#",Channel/binary>>,
-                                io_lib:format("~s rolled ~B",
-                                              [Sender, Result]))
+                    lists:foreach(
+                        fun({Result, Desc}) ->
+                            Ref:privmsg(<<"#",Channel/binary>>,
+                                        io_lib:format("~s rolled ~B -> ~s",
+                                                      [Sender, Result, Desc]))
+                        end,
+                        Results)
             end;
         _ ->
             ok
