@@ -30,26 +30,34 @@ handle_event(Msg, State) ->
         {in, Ref, [Sender,
                    _User,
                    <<"PRIVMSG">>,
-                   <<"#",Channel/binary>>,
-                   <<"!roll",Rest/binary>>]} ->
-            Results = d20_dice:parse_and_roll(binary_to_list(Rest)),
-            case Results of
-                {fail, _} ->
-                    Ref:privmsg(<<"#",Channel/binary>>,
-                                "WTF???");
+                   <<Receiver/binary>>,
+                   <<"!roll ",Rest/binary>>]} ->
+            case Receiver of
+                <<"#",_Channel/binary>> ->
+                    process_roll(Ref, Sender, Receiver, Rest);
                 _ ->
-                    lists:foreach(
-                        fun({Result, Desc}) ->
-                            Ref:privmsg(<<"#",Channel/binary>>,
-                                        io_lib:format("~s rolled ~B -> ~s",
-                                                      [Sender, Result, Desc]))
-                        end,
-                        Results)
+                    process_roll(Ref, Sender, Sender, Rest)
             end;
         _ ->
             ok
     end,
     {ok, State}.
+
+process_roll(Ref, Nick, Receiver, Roll) ->
+    Results = d20_dice:parse_and_roll(binary_to_list(Roll)),
+    case Results of
+        {fail, _} ->
+            Ref:privmsg(<<Receiver/binary>>,
+                        "WTF???");
+        _ ->
+            lists:foreach(
+                fun({Result, Desc}) ->
+                    Ref:privmsg(<<Receiver/binary>>,
+                                io_lib:format("~s rolled ~B -> ~s",
+                                              [Nick, Result, Desc]))
+                end,
+                Results)
+    end.
 
 handle_call(_Request, State) ->
     {ok, not_implemented, State}.
