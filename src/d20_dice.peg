@@ -32,14 +32,30 @@ element <- open_brace additive close_brace / item `
     end
 `;
 
-item <- space? (die / natural) space? `lists:nth(2, Node)`;
+item <- space? (savage_roll / roller / natural) space? `lists:nth(2, Node)`;
 
-die <- natural? "d" natural `
+savage_roll <- savage natural `
+    Roll = lists:nth(2, Node),
+    {keep, 1, [{open_die, 1, 6}, {open_die, 1, Roll}]}
+`;
+
+roller <- natural? (die / open_die) natural (keep natural)? `
+    Count = case lists:nth(1, Node) of
+        [] -> 1;
+        C -> C
+    end,
+    Type = lists:nth(2, Node),
+    Faces = lists:nth(3, Node),
     case Node of
-        [[], _, Faces] -> {die, 1, Faces};
-        [Count, _, Faces] -> {die, Count, Faces}
+        [_, _, _, []] -> {keep, Count, [{Type, Count, Faces}]};
+        [_, _, _, [keep, Keep]] -> {keep, Keep, [{Type, Count, Faces}]}
     end
 `;
+
+die <- "d" `die`;
+open_die <- "D" `open_die`;
+keep <- "k" `keep`;
+savage <- "s" `savage`;
 
 natural <- [0-9]+ `list_to_integer(Node)`;
 
@@ -60,7 +76,8 @@ tailer <- .* ~;
     parse_and_roll/1
 ]).
 
--define(LIMIT, 100).
+-define(MIN, 2).
+-define(MAX, 100).
 
 parse_and_roll(String) ->
     Parsed = parse(String),
@@ -76,11 +93,14 @@ parse_and_roll(String) ->
 
 roll({roll, Tree}) ->
     try roll_aux(Tree, [])
-    catch throw:number_too_big ->
-        {fail, number_too_big}
+    catch
+        throw:number_too_big ->
+            {fail, number_too_big};
+        throw:number_too_small ->
+            {fail, number_too_small}
     end.
 
-roll_aux({repeat, Count, Tree}, Acc) when Count > ?LIMIT ->
+roll_aux({repeat, Count, Tree}, Acc) when Count > ?MAX ->
     throw(number_too_big);
 
 roll_aux({repeat, Count, Tree}, Acc) when Count > 0 ->
@@ -95,18 +115,77 @@ roll_aux(Tree, Acc) ->
 process_tree(Tree) ->
     [process_tree_aux(Tree)].
 
-process_tree_aux({die, Count, Faces}) when Count > ?LIMIT;
-                                           Faces > ?LIMIT ->
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Die throwing
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+throw_die(Faces) ->
+    Roll = random:uniform(Faces),
+    {Roll, pprint(Roll)}.
+
+throw_open_die(Faces) ->
+    throw_open_die_aux(Faces, []).
+
+throw_open_die_aux(Faces, Rolls) ->
+    Roll = random:uniform(Faces),
+    Total = Rolls ++ [Roll],
+    case Roll of
+        Faces ->
+            throw_open_die_aux(Faces, Total);
+        _ ->
+            case length(Total) of
+                1 -> {lists:sum(Total), pprint(Total)};
+                _ -> {lists:sum(Total), "{" ++ pprint(Total) ++ "}"}
+            end
+    end.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Check rolls for validity
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+process_tree_aux({die, Count, Faces}) when Count > ?MAX;
+                                           Faces > ?MAX ->
     throw(number_too_big);
 
-process_tree_aux({die, Count, Faces}) ->
+process_tree_aux({open_die, Count, Faces}) when Count > ?MAX;
+                                                Faces > ?MAX ->
+    throw(number_too_big);
+
+process_tree_aux({die, Count, Faces}) when Faces < ?MIN ->
+    throw(number_too_small);
+
+process_tree_aux({open_die, Count, Faces}) when Faces < ?MIN ->
+    throw(number_too_small);
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Roll die tree
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+process_tree_aux({keep, Keep, Dice}) ->
+    Results = lists:map(fun(Die) -> process_tree_aux(Die) end,
+                        Dice),
+    {R, Descs} = lists:unzip(Results),
+    Rolls = lists:flatten(R),
+    Count = length(Rolls),
+    From = case Count > Keep of
+        true -> Count - Keep + 1;
+        false -> 1
+    end,
+    Sorted = lists:sort(Rolls),
+    Kept = lists:sublist(Sorted, From, Keep),
+    Result = lists:sum(Kept),
+    {Result, pprint(Descs)};
+
+process_tree_aux({Type, Count, Faces}) when Type == die;
+                                            Type == open_die ->
     FaceList = lists:duplicate(Count, Faces),
-    Rolls = lists:map(fun(Face) -> random:uniform(Face) end,
-                      FaceList),
-    Result = lists:foldl(fun(E, A) -> E + A end,
-                         0,
-                         Rolls),
-    {Result, "[" ++ pprint(Rolls) ++ "]"};
+    Rolls = case Type of
+        die ->
+            lists:map(fun(Face) -> throw_die(Face) end,
+                      FaceList);
+        open_die ->
+            lists:map(fun(Face) -> throw_open_die(Face) end,
+                      FaceList)
+    end,
+    {Results, Descs} = lists:unzip(Rolls),
+    {Results, "[" ++ pprint(Descs) ++ "]"};
 
 process_tree_aux(Number) when is_integer(Number) ->
     {Number, pprint(Number)};
@@ -124,8 +203,11 @@ process_tree_aux({minus, Arg1, Arg2}) ->
 process_tree_aux({times, Arg1, Arg2}) ->
     {Res1, Desc1} = process_tree_aux(Arg1),
     {Res2, Desc2} = process_tree_aux(Arg2),
-    {Res1 * Res2, "(" ++ Desc1 ++ " * " ++ Desc2 ++ ")"}.    
+    {Res1 * Res2, "(" ++ Desc1 ++ " * " ++ Desc2 ++ ")"}.
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Pprint the results
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 pprint(Term) ->
     pprint_aux(Term, "").
 
@@ -136,6 +218,12 @@ pprint_aux([Number], Str) when is_integer(Number) ->
     Str ++ io_lib:format("~B", [Number]);
 
 pprint_aux([Number | T], Str) when is_integer(Number) ->
-    pprint_aux(T, Str ++ io_lib:format("~B,", [Number])).
+    pprint_aux(T, Str ++ io_lib:format("~B,", [Number]));
+
+pprint_aux([Term], Str) ->
+    Str ++ Term;
+
+pprint_aux([Term | T], Str) ->
+    pprint_aux(T, Str ++ Term ++ ",").
 `
 
