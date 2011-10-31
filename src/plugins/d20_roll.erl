@@ -14,6 +14,7 @@
 ]).
 
 -import(random).
+-import(io).
 -import(io_lib).
 -import(lists).
 -import(d20_dice).
@@ -31,32 +32,35 @@ handle_event(Msg, State) ->
                    _User,
                    <<"PRIVMSG">>,
                    <<Receiver/binary>>,
-                   <<"!roll ",Rest/binary>>]} ->
-            case Receiver of
+                   <<"!",Rest/binary>>]} ->
+            NewState = case Receiver of
                 <<"#",_Channel/binary>> ->
-                    process_roll(Ref, Sender, Receiver, Rest);
+                    process_roll(State, Ref, Sender, Receiver, Rest);
                 _ ->
-                    process_roll(Ref, Sender, Sender, Rest)
-            end;
+                    process_roll(State, Ref, Sender, Sender, Rest)
+            end,
+            {ok, NewState};
         _ ->
-            ok
-    end,
-    {ok, State}.
+            {ok, State}
+    end.
 
-process_roll(Ref, Nick, Receiver, Roll) ->
-    Results = d20_dice:parse_and_roll(binary_to_list(Roll)),
+process_roll(State, Ref, Nick, Receiver, Cmd) ->
+    Results = d20_dice:parse_and_process(binary_to_list(Cmd), State),
     case Results of
         {fail, _} ->
+            io:format("~p~n", [Results]),
             Ref:privmsg(<<Receiver/binary>>,
-                        "WTF???");
-        _ ->
+                        "WTF???"),
+            State;
+        {ok, {Msgs, NewState}} ->
             lists:foreach(
-                fun({Result, Desc}) ->
+                fun(Msg) ->
                     Ref:privmsg(<<Receiver/binary>>,
-                                io_lib:format("~s rolled ~B -> ~s",
-                                              [Nick, Result, Desc]))
+                                io_lib:format("~s ~s",
+                                              [Nick, Msg]))
                 end,
-                Results)
+                Msgs),
+            NewState
     end.
 
 handle_call(_Request, State) ->

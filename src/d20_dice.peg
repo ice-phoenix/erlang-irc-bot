@@ -1,9 +1,33 @@
-roll <- space? (repeative / additive) space? tailer? `
+cmd <- space? (shuffle / deal / roll) space? tailer? `
     Tailer = lists:nth(4, Node),
     case Tailer of
-        [] -> {roll, lists:nth(2, Node)};
+        [] -> lists:nth(2, Node);
         _ -> {fail, tokens_left}
     end
+`;
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Deck control
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+shuffle <- "shuffle" `
+    {deck, {shuffle}}
+`;
+
+deal <- "deal" space? natural? `
+    Count = case lists:nth(3, Node) of
+        [] -> 1;
+        C -> C
+    end,
+    {deck, {deal, Count}}
+`;
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Rolling
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+roll <- "roll" space? (repeative / additive) `
+    {roll, lists:nth(3, Node)}
 `;
 
 repeative <- natural repeat additive `
@@ -57,7 +81,9 @@ open_die <- "D" `open_die`;
 keep <- "k" `keep`;
 savage <- "s" `savage`;
 
-natural <- [0-9]+ `list_to_integer(Node)`;
+natural <- [0-9]+ `
+    list_to_integer(lists:foldr(fun(E, Acc) -> binary_to_list(E) ++ Acc end, [], Node))
+`;
 
 plus <- "+" `plus`;
 minus <- "-" `minus`;
@@ -73,26 +99,65 @@ tailer <- .* ~;
 
 `
 -export([
-    parse_and_roll/1
+    parse_and_process/2
 ]).
 
 -define(MIN, 2).
 -define(MAX, 100).
 
-parse_and_roll(String) ->
+parse_and_process(String, State) ->
     Parsed = parse(String),
     case Parsed of
         {fail, Reason} -> {fail, Reason};
-        _ ->
-            Results = roll(Parsed),
-            case Results of
+        {deck, Cmd} ->
+            case deck(Cmd, State) of
                 {fail, Reason} -> {fail, Reason};
-                _ -> Results
+                {ok, Results, NewState} -> {ok, {Results, NewState}}
+            end;
+        _ ->
+            case roll(Parsed) of
+                {fail, Reason} -> {fail, Reason};
+                {ok, Results} -> {ok, {Results, State}}
             end
     end.
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Decking
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+deck({shuffle}, State) ->
+    {ok, ["shuffled the deck"], create_new_deck()};
+
+deck({deal, Count}, State) ->
+    {Cards, NewState} = case length(State) > Count of
+        false -> {State, []};
+        true -> lists:split(Count, State)
+    end,
+    Msg = case length(Cards) of
+        0 -> "dealt nothing (no cards left, please reshuffle)";
+        _ -> io_lib:format("dealt ~s", [pprint(Cards, " and ")])
+    end,
+    {ok, [Msg], NewState}.
+
+create_new_deck() ->
+    Ranks = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"],
+    Suits = ["Clubs", "Diamonds", "Hearts", "Spades"],
+    Cards = [ R ++ " of " ++ S || R <- Ranks, S <- Suits] ++ [ "Red Jocker", "Black Jocker" ],
+    shuffle:shuffle(Cards).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Rolling
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 roll({roll, Tree}) ->
-    try roll_aux(Tree, [])
+    try
+        Rolls = roll_aux(Tree, []),
+        Results = lists:map(
+                    fun({Roll, Desc}) ->
+                        io_lib:format("rolled ~B -> ~s", [Roll, Desc])
+                    end,
+                    Rolls),
+        {ok, Results}
     catch
         throw:number_too_big ->
             {fail, number_too_big};
@@ -208,22 +273,28 @@ process_tree_aux({times, Arg1, Arg2}) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Pprint the results
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+pprint(Term, Sep) ->
+    pprint_aux(Term, "", Sep).
+
 pprint(Term) ->
-    pprint_aux(Term, "").
+    pprint_aux(Term, "", ",").
 
-pprint_aux(Number, Str) when is_integer(Number) ->
+pprint_aux(Number, Str, Sep) when is_integer(Number) ->
     Str ++ io_lib:format("~B", [Number]);
 
-pprint_aux([Number], Str) when is_integer(Number) ->
+pprint_aux([Number], Str, Sep) when is_integer(Number) ->
     Str ++ io_lib:format("~B", [Number]);
 
-pprint_aux([Number | T], Str) when is_integer(Number) ->
-    pprint_aux(T, Str ++ io_lib:format("~B,", [Number]));
+pprint_aux([Number | T], Str, Sep) when is_integer(Number) ->
+    pprint_aux(T, Str ++ io_lib:format("~B,", [Number]), Sep);
 
-pprint_aux([Term], Str) ->
-    Str ++ Term;
+pprint_aux([Term], Str, Sep) ->
+    Str ++ "[" ++ Term ++ "]";
 
-pprint_aux([Term | T], Str) ->
-    pprint_aux(T, Str ++ Term ++ ",").
+pprint_aux([], Str, Sep) ->
+    Str;
+
+pprint_aux([Term | T], Str, Sep) ->
+    pprint_aux(T, Str ++ "[" ++ Term ++ "]" ++ Sep, Sep).
 `
 
