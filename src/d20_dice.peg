@@ -104,6 +104,7 @@ tailer <- .* ~;
 
 -define(MIN, 2).
 -define(MAX, 100).
+-define(DEAL_MAX, 10).
 
 parse_and_process(String, State) ->
     Parsed = parse(String),
@@ -128,16 +129,19 @@ parse_and_process(String, State) ->
 deck({shuffle}, State) ->
     {ok, ["shuffled the deck"], create_new_deck()};
 
+deck({deal, Count}, State) when Count > ?DEAL_MAX ->
+    {fail, deal_number_too_big};
+
 deck({deal, Count}, State) ->
     {Cards, NewState} = case length(State) > Count of
         false -> {State, []};
         true -> lists:split(Count, State)
     end,
     Msg = case length(Cards) of
-        0 -> "dealt nothing (no cards left, please reshuffle)";
-        _ -> io_lib:format("dealt ~s", [pprint(Cards, " and ")])
+        0 -> ["dealt nothing (no cards left, please reshuffle)"];
+        _ -> lists:map(fun(E) -> io_lib:format("dealt ~s", [E]) end, Cards)
     end,
-    {ok, [Msg], NewState}.
+    {ok, Msg, NewState}.
 
 create_new_deck() ->
     Ranks = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"],
