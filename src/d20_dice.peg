@@ -133,15 +133,19 @@ deck({deal, Count}, State) when Count > ?DEAL_MAX ->
     {fail, deal_number_too_big};
 
 deck({deal, Count}, State) ->
-    {Cards, NewState} = case length(State) > Count of
+    deal_aux(Count, State, []).
+
+deal_aux(Count, State, Msg) ->
+    Length = length(State),
+    {Cards, NewState} = case Length > Count of
         false -> {State, []};
         true -> lists:split(Count, State)
     end,
-    Msg = case length(Cards) of
-        0 -> ["dealt nothing (no cards left, please reshuffle)"];
-        _ -> lists:map(fun(E) -> io_lib:format("dealt ~s", [E]) end, Cards)
-    end,
-    {ok, Msg, NewState}.
+    NewMsg = Msg ++ lists:map(fun(E) -> io_lib:format("dealt ~s", [E]) end, Cards),
+    case Length > Count of
+        false -> deal_aux(Count - Length, create_new_deck(), NewMsg ++ ["reshuffled the deck (no cards left)"]);
+        true -> {ok, NewMsg, NewState}
+    end.
 
 create_new_deck() ->
     Ranks = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"],
