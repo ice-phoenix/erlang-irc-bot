@@ -48,7 +48,6 @@ process_roll(State, Ref, Nick, Receiver, Cmd) ->
     Results = d20_dice:parse_and_process(binary_to_list(Cmd), State),
     case Results of
         {fail, _} ->
-            io:format("~p~n", [Results]),
             Ref:privmsg(<<Receiver/binary>>,
                         "WTF???"),
             State;

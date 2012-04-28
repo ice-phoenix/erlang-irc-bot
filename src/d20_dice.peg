@@ -58,9 +58,14 @@ element <- open_brace additive close_brace / item `
 
 item <- space? (savage_roll / roller / natural) space? `lists:nth(2, Node)`;
 
-savage_roll <- savage natural `
-    Roll = lists:nth(2, Node),
-    {keep, 1, [{open_die, 1, 6}, {open_die, 1, Roll}]}
+savage_roll <- natural? savage natural `
+    Times = case lists:nth(1, Node) of
+        [] -> 1;
+        T -> T
+    end,
+    Roll = lists:nth(3, Node),
+    Dices = lists:duplicate(Times, {open_die, 1, Roll}),
+    {keep, Times, [{wild_die, 1, 6}] ++ Dices}
 `;
 
 roller <- natural? (die / open_die) natural (keep natural)? `
@@ -71,8 +76,8 @@ roller <- natural? (die / open_die) natural (keep natural)? `
     Type = lists:nth(2, Node),
     Faces = lists:nth(3, Node),
     case Node of
-        [_, _, _, []] -> {keep, Count, [{Type, Count, Faces}]};
-        [_, _, _, [keep, Keep]] -> {keep, Keep, [{Type, Count, Faces}]}
+        [_, _, _, []] -> {sum, {keep, Count, [{Type, Count, Faces}]}};
+        [_, _, _, [keep, Keep]] -> {sum, {keep, Keep, [{Type, Count, Faces}]}}
     end
 `;
 
@@ -162,7 +167,7 @@ roll({roll, Tree}) ->
         Rolls = roll_aux(Tree, []),
         Results = lists:map(
                     fun({Roll, Desc}) ->
-                        io_lib:format("rolled ~B -> ~s", [Roll, Desc])
+                        io_lib:format("rolled ~w -> ~s", [Roll, Desc])
                     end,
                     Rolls),
         {ok, Results}
@@ -170,7 +175,9 @@ roll({roll, Tree}) ->
         throw:number_too_big ->
             {fail, number_too_big};
         throw:number_too_small ->
-            {fail, number_too_small}
+            {fail, number_too_small};
+        error:_ ->
+            {fail, nested_error}
     end.
 
 roll_aux({repeat, Count, Tree}, Acc) when Count > ?MAX ->
@@ -205,11 +212,16 @@ throw_open_die_aux(Faces, Rolls) ->
         Faces ->
             throw_open_die_aux(Faces, Total);
         _ ->
+            Sum = lists:sum(Total),
             case length(Total) of
-                1 -> {lists:sum(Total), pprint(Total)};
-                _ -> {lists:sum(Total), "{" ++ pprint(Total) ++ "}"}
+                1 -> {Sum, pprint(Sum)};
+                _ -> {Sum, "{" ++ pprint(Sum) ++ "}"}
             end
     end.
+
+throw_wild_die(Faces) ->
+    {R, D} = throw_open_die(Faces),
+    {R, D ++ "*"}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Check rolls for validity
@@ -231,23 +243,27 @@ process_tree_aux({open_die, Count, Faces}) when Faces < ?MIN ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Roll die tree
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+process_tree_aux({sum, Rolls}) ->
+    {R, D} = process_tree_aux(Rolls),
+    {lists:sum(R), D};
+
 process_tree_aux({keep, Keep, Dice}) ->
-    Results = lists:map(fun(Die) -> process_tree_aux(Die) end,
-                        Dice),
-    {R, Descs} = lists:unzip(Results),
-    Rolls = lists:flatten(R),
-    Count = length(Rolls),
-    From = case Count > Keep of
-        true -> Count - Keep + 1;
-        false -> 1
-    end,
-    Sorted = lists:sort(Rolls),
-    Kept = lists:sublist(Sorted, From, Keep),
-    Result = lists:sum(Kept),
-    {Result, pprint(Descs)};
+    Results = lists:flatmap(fun(Die) -> process_tree_aux(Die) end,
+                            Dice),
+    SortedResults = sort_rolls(Results),
+    {R, D} = lists:unzip(SortedResults),
+    {Rolls, Descs} = {R, D},
+    KeptRolls = lists:sublist(Rolls, 1, Keep),
+    KeptDescs = lists:sublist(Descs, 1, Keep),
+    RestDescs = lists:sublist(Descs, Keep + 1, ?MAX),
+    case RestDescs of
+        [] -> {KeptRolls, "[" ++ pprint(KeptDescs) ++ "]"};
+        RD -> {KeptRolls, "[" ++ pprint(KeptDescs) ++ "] " ++ pprint(RestDescs)}
+    end;
 
 process_tree_aux({Type, Count, Faces}) when Type == die;
-                                            Type == open_die ->
+                                            Type == open_die;
+                                            Type == wild_die ->
     FaceList = lists:duplicate(Count, Faces),
     Rolls = case Type of
         die ->
@@ -255,28 +271,79 @@ process_tree_aux({Type, Count, Faces}) when Type == die;
                       FaceList);
         open_die ->
             lists:map(fun(Face) -> throw_open_die(Face) end,
+                      FaceList);
+        wild_die ->
+            lists:map(fun(Face) -> throw_wild_die(Face) end,
                       FaceList)
     end,
-    {Results, Descs} = lists:unzip(Rolls),
-    {Results, "[" ++ pprint(Descs) ++ "]"};
+    SortedRolls = sort_rolls(Rolls),
+    SortedRolls;
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Arithmetics
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 process_tree_aux(Number) when is_integer(Number) ->
     {Number, pprint(Number)};
 
 process_tree_aux({plus, Arg1, Arg2}) ->
     {Res1, Desc1} = process_tree_aux(Arg1),
     {Res2, Desc2} = process_tree_aux(Arg2),
-    {Res1 + Res2, "(" ++ Desc1 ++ " + " ++ Desc2 ++ ")"};
+    {sum(Res1, Res2), "(" ++ Desc1 ++ " + " ++ Desc2 ++ ")"};
 
 process_tree_aux({minus, Arg1, Arg2}) ->
     {Res1, Desc1} = process_tree_aux(Arg1),
     {Res2, Desc2} = process_tree_aux(Arg2),
-    {Res1 - Res2, "(" ++ Desc1 ++ " - " ++ Desc2 ++ ")"};
+    {sub(Res1, Res2), "(" ++ Desc1 ++ " - " ++ Desc2 ++ ")"};
 
 process_tree_aux({times, Arg1, Arg2}) ->
     {Res1, Desc1} = process_tree_aux(Arg1),
     {Res2, Desc2} = process_tree_aux(Arg2),
-    {Res1 * Res2, "(" ++ Desc1 ++ " * " ++ Desc2 ++ ")"}.
+    {mul(Res1, Res2), "(" ++ Desc1 ++ " * " ++ Desc2 ++ ")"}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Addition
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+sum(Arg1, Arg2) when is_list(Arg1), is_number(Arg2) ->
+    lists:map(fun(A) -> A + Arg2 end, Arg1);
+
+sum(Arg1, Arg2) when is_list(Arg2), is_number(Arg1) ->
+    sum(Arg2, Arg1);
+
+sum(Arg1, Arg2) when is_list(Arg1), is_list(Arg2) ->
+    lists:zipwith(fun(A, B) -> A + B end, Arg1, Arg2);
+
+sum(Arg1, Arg2) when is_number(Arg1), is_number(Arg2) ->
+    Arg1 + Arg2.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Subtraction
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+sub(Arg1, Arg2) when is_list(Arg1), is_number(Arg2) ->
+    lists:map(fun(A) -> A - Arg2 end, Arg1);
+
+sub(Arg1, Arg2) when is_list(Arg2), is_number(Arg1) ->
+    sub(Arg2, Arg1);
+
+sub(Arg1, Arg2) when is_list(Arg1), is_list(Arg2) ->
+    lists:zipwith(fun(A, B) -> A - B end, Arg1, Arg2);
+
+sub(Arg1, Arg2) when is_number(Arg1), is_number(Arg2) ->
+    Arg1 - Arg2.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Multiplication
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+mul(Arg1, Arg2) when is_list(Arg1), is_number(Arg2) ->
+    lists:map(fun(A) -> A * Arg2 end, Arg1);
+
+mul(Arg1, Arg2) when is_list(Arg2), is_number(Arg1) ->
+    mul(Arg2, Arg1);
+
+mul(Arg1, Arg2) when is_list(Arg1), is_list(Arg2) ->
+    lists:zipwith(fun(A, B) -> A * B end, Arg1, Arg2);
+
+mul(Arg1, Arg2) when is_number(Arg1), is_number(Arg2) ->
+    Arg1 * Arg2.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Pprint the results
@@ -304,5 +371,16 @@ pprint_aux([], Str, Sep) ->
 
 pprint_aux([Term | T], Str, Sep) ->
     pprint_aux(T, Str ++ Term ++ Sep, Sep).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Sort rolls
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+sort_rolls(Rolls) when is_list(Rolls) ->
+    lists:sort(
+        fun({R1, D1}, {R2, D2}) -> R1 > R2 end,
+        Rolls);
+
+sort_rolls(Rolls) ->
+    Rolls.
 `
 
