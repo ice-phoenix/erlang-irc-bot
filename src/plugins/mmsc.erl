@@ -56,7 +56,7 @@ process_command("servers", State, Ref, _Nick, Receiver) ->
             {Server, Players} = E,
             Msg = case Players of
                 [] -> "Anybody home???";
-                _ -> io_lib:format("~s", [Players])
+                _ -> io_lib:format("~p", [Players])
             end,
             Ref:privmsg(<<Receiver/binary>>,
                         io_lib:format("~s : ~s", [Server, Msg]))
