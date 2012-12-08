@@ -56,7 +56,7 @@ process_command("servers", State, Ref, _Nick, Receiver) ->
             {Server, Players} = E,
             Msg = case Players of
                 [] -> "Anybody home???";
-                _ -> io_lib:format("~p", [Players])
+                _ -> pprint(Players, ", ")
             end,
             Ref:privmsg(<<Receiver/binary>>,
                         io_lib:format("~s : ~s", [Server, Msg]))
@@ -76,4 +76,31 @@ handle_info(_Info, State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Pprint Erlang terms
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+pprint(Term, Sep) ->
+    pprint_aux(Term, "", Sep).
+
+pprint(Term) ->
+    pprint_aux(Term, "", ",").
+
+pprint_aux(Number, Str, Sep) when is_integer(Number) ->
+    Str ++ io_lib:format("~B", [Number]);
+
+pprint_aux([Number], Str, Sep) when is_integer(Number) ->
+    Str ++ io_lib:format("~B", [Number]);
+
+pprint_aux([Number | T], Str, Sep) when is_integer(Number) ->
+    pprint_aux(T, Str ++ io_lib:format("~B,", [Number]), Sep);
+
+pprint_aux([Term], Str, Sep) ->
+    Str ++ Term;
+
+pprint_aux([], Str, Sep) ->
+    Str;
+
+pprint_aux([Term | T], Str, Sep) ->
+    pprint_aux(T, Str ++ Term ++ Sep, Sep).
 
