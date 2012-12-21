@@ -28,6 +28,13 @@ terminate(_Args, _State) ->
 
 handle_event(Msg, State) ->
     case Msg of
+        {in, Ref, [_Sender,
+                   _User,
+                   <<"PRIVMSG">>,
+                   <<_Receiver/binary>>,
+                   <<"!join ",Rest/binary>>]} ->
+            Ref:join(<<Rest/binary>>),
+            {ok, State};
         {in, Ref, [Sender,
                    _User,
                    <<"PRIVMSG">>,
