@@ -104,5 +104,13 @@ debug(Msg) ->
 % stdout atom. The port will be closed automatically if the
 % connection process dies.
 open_stdout() ->
-    StdOut = open_port("/dev/stdout", [binary, out]),
-    register(stdout, StdOut).
+    case whereis(stdout) of
+        undefined ->
+            StdOut = case os:type() of
+                {win32, _} -> open_port("log", [binary, out]);
+                {unix, _} -> open_port("/dev/stdout", [binary, out])
+            end,
+            register(stdout, StdOut),
+            ok;
+        _ -> ok
+    end.
