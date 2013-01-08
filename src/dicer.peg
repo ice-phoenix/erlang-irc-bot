@@ -1,8 +1,11 @@
-cmd <- space? (shuffle / deal / roll) space? tailer? `
-    Tailer = lists:nth(4, Node),
-    case Tailer of
-        [] -> lists:nth(2, Node);
-        _ -> {fail, tokens_left}
+cmd <- space? (shuffle / deal / roll) space? silent? tailer? `
+    Visibility = case lists:nth(4, Node) of
+        [] -> public;
+        V -> V
+    end,
+    case lists:nth(5, Node) of
+        [] -> {Visibility, lists:nth(2, Node)};
+        _ -> throw({fail, tokens_left})
     end
 `;
 
@@ -100,6 +103,8 @@ close_brace <- space? ")" space? `close_brace`;
 
 space <- [ ]* `ignore`;
 
+silent <- "silent" `private`;
+
 tailer <- .* ~;
 
 `
@@ -114,25 +119,24 @@ tailer <- .* ~;
 -record(channel_state, {deck=[]}).
 
 parse_and_process(CmdString, Channel, State) ->
-    Parsed = parse(CmdString),
-    ChannelState = case orddict:find(Channel, State) of
-        error -> #channel_state{};
-        {ok, Value} -> Value
-    end,
-    case Parsed of
-        {fail, Reason} -> {fail, Reason};
-        {deck, Cmd} ->
-            case deck(Cmd, ChannelState) of
-                {fail, Reason} -> {fail, Reason};
-                {ok, Results, NewChannelState} ->
-                    NewState = orddict:store(Channel, NewChannelState, State),
-                    {ok, {Results, NewState}}
-            end;
-        _ ->
-            case roll(Parsed) of
-                {fail, Reason} -> {fail, Reason};
-                {ok, Results} -> {ok, {Results, State}}
-            end
+    try
+        {Visibility, What} = parse(CmdString),
+        ChannelState = case orddict:find(Channel, State) of
+            error -> #channel_state{};
+            {ok, Value} -> Value
+        end,
+        Mapper = fun(Msg) -> {Visibility, Msg} end,
+        case What of
+            {deck, Cmd} ->
+                {ok, Results, NewChannelState} = deck(Cmd, ChannelState),
+                NewState = orddict:store(Channel, NewChannelState, State),
+                {ok, {lists:map(Mapper, Results), NewState}};
+            _ ->
+                {ok, Results} = roll(What),
+                {ok, {lists:map(Mapper, Results), State}}
+        end
+    catch
+        throw:{fail, Reason} -> {fail, Reason}
     end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -143,7 +147,7 @@ deck({shuffle}, State) ->
     { ok, ["shuffled the deck"], State#channel_state{deck=create_new_deck()} };
 
 deck({deal, Count}, State) when Count > ?DEAL_MAX ->
-    {fail, deal_number_too_big};
+    throw({fail, deal_number_too_big});
 
 deck({deal, Count}, State) ->
     {ok, Msgs, NewDeck} = deal_aux(Count, State#channel_state.deck, []),
@@ -182,11 +186,11 @@ roll({roll, Tree}) ->
         {ok, Results}
     catch
         throw:number_too_big ->
-            {fail, number_too_big};
+            throw({fail, number_too_big});
         throw:number_too_small ->
-            {fail, number_too_small};
+            throw({fail, number_too_small});
         error:_ ->
-            {fail, nested_error}
+            throw({fail, nested_error})
     end.
 
 roll_aux({repeat, Count, Tree}, Acc) when Count > ?MAX ->

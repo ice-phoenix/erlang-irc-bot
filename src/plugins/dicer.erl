@@ -55,10 +55,12 @@ process_roll(State, Ref, Nick, Receiver, Cmd) ->
             State;
         {ok, {Msgs, NewState}} ->
             lists:foreach(
-                fun(Msg) ->
-                    Ref:privmsg(<<Receiver/binary>>,
-                                io_lib:format("~s ~s",
-                                              [Nick, Msg]))
+                fun(E) ->
+                    {Visibility, Msg} = E,
+                    case Visibility of
+                        public ->  Ref:privmsg(<<Receiver/binary>>, io_lib:format("~s ~s", [Nick, Msg]));
+                        private -> Ref:privmsg(<<Nick/binary>>, io_lib:format("~s ~s", ["You", Msg]))
+                    end
                 end,
                 Msgs),
             NewState
