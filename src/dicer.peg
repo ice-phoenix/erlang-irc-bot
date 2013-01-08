@@ -151,7 +151,10 @@ deck({deal, Count}, State) when Count > ?DEAL_MAX ->
 
 deck({deal, Count}, State) ->
     {ok, Msgs, NewDeck} = deal_aux(Count, State#channel_state.deck, []),
-    { ok, Msgs, State#channel_state{deck=NewDeck} }.
+    { ok, Msgs, State#channel_state{deck=NewDeck} };
+
+deck(Foo, _State) ->
+    throw({fail, unsupported_deal_cmd}).
 
 deal_aux(Count, Deck, Msg) ->
     Length = length(Deck),
@@ -191,7 +194,10 @@ roll({roll, Tree}) ->
             throw({fail, number_too_small});
         error:_ ->
             throw({fail, nested_error})
-    end.
+    end;
+
+roll(Foo) ->
+    throw({fail, unsupported_roll_cmd}).
 
 roll_aux({repeat, Count, Tree}, Acc) when Count > ?MAX ->
     throw(number_too_big);
