@@ -86,19 +86,19 @@ pprint(Term, Sep) ->
 pprint(Term) ->
     pprint_aux(Term, "", ",").
 
-pprint_aux(Number, Str, Sep) when is_integer(Number) ->
+pprint_aux(Number, Str, _Sep) when is_integer(Number) ->
     Str ++ io_lib:format("~B", [Number]);
 
-pprint_aux([Number], Str, Sep) when is_integer(Number) ->
+pprint_aux([Number], Str, _Sep) when is_integer(Number) ->
     Str ++ io_lib:format("~B", [Number]);
 
 pprint_aux([Number | T], Str, Sep) when is_integer(Number) ->
     pprint_aux(T, Str ++ io_lib:format("~B,", [Number]), Sep);
 
-pprint_aux([Term], Str, Sep) ->
+pprint_aux([Term], Str, _Sep) ->
     Str ++ Term;
 
-pprint_aux([], Str, Sep) ->
+pprint_aux([], Str, _Sep) ->
     Str;
 
 pprint_aux([Term | T], Str, Sep) ->
