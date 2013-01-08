@@ -12,10 +12,14 @@ ERLC    := erlc $(ERLC_FLAGS)
 rwildcard=$(foreach d,$(wildcard $1*),$(call rwildcard,$d/,$2) $(filter $(subst *,%,$2),$d))
 
 SOURCES := $(call rwildcard,$(SRCDIR),*.erl)
-OBJECTS := $(patsubst $(SRCDIR)/%.erl,$(OBJDIR)/%.beam,$(SOURCES))
-OBJDIRS := $(sort $(foreach a,$(OBJECTS),$(dir $a)))
+
 PEGS    := $(call rwildcard,$(SRCDIR),*.peg)
 CPEGS   := $(patsubst $(SRCDIR)/%.peg,$(SRCDIR)/%.erl,$(PEGS))
+
+ALL_SOURCES := $(SOURCES) $(CPEGS)
+
+OBJECTS := $(patsubst $(SRCDIR)/%.erl,$(OBJDIR)/%.beam,$(ALL_SOURCES))
+OBJDIRS := $(sort $(foreach a,$(OBJECTS),$(dir $a)))
 
 all: $(CPEGS) $(OBJDIRS) $(OBJECTS) $(OBJDIR)/ircbot.app
 
