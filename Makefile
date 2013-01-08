@@ -1,5 +1,6 @@
-.SUFFIXES: .erl .beam .yrl
+.SUFFIXES: .peg .erl .beam .yrl
 .PHONY: all clean run-shell
+
 
 
 SRCDIR  := src
@@ -13,9 +14,13 @@ rwildcard=$(foreach d,$(wildcard $1*),$(call rwildcard,$d/,$2) $(filter $(subst 
 SOURCES := $(call rwildcard,$(SRCDIR),*.erl)
 OBJECTS := $(patsubst $(SRCDIR)/%.erl,$(OBJDIR)/%.beam,$(SOURCES))
 OBJDIRS := $(sort $(foreach a,$(OBJECTS),$(dir $a)))
+PEGS    := $(call rwildcard,$(SRCDIR),*.peg)
+CPEGS   := $(patsubst $(SRCDIR)/%.peg,$(SRCDIR)/%.erl,$(PEGS))
 
+all: $(CPEGS) $(OBJDIRS) $(OBJECTS) $(OBJDIR)/ircbot.app
 
-all: $(OBJDIRS) $(OBJECTS) $(OBJDIR)/ircbot.app
+$(SRCDIR)/%.erl: $(SRCDIR)/%.peg
+	erl -noshell -eval 'neotoma:file("$<").' -s erlang halt
 
 $(OBJDIRS):
 	mkdir $@
@@ -28,6 +33,7 @@ $(OBJDIR)/%.beam: $(SRCDIR)/%.erl
 
 clean:
 	rm -rf $(OBJDIR)
+	rm -rf $(CPEGS)
 	rm -f erl_crash.dump
 
 run-shell:
