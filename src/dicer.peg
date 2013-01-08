@@ -104,21 +104,29 @@ tailer <- .* ~;
 
 `
 -export([
-    parse_and_process/2
+    parse_and_process/3
 ]).
 
 -define(MIN, 2).
--define(MAX, 100).
+-define(MAX, 255).
 -define(DEAL_MAX, 10).
 
-parse_and_process(String, State) ->
-    Parsed = parse(String),
+-record(channel_state, {deck=[]}).
+
+parse_and_process(CmdString, Channel, State) ->
+    Parsed = parse(CmdString),
+    ChannelState = case orddict:find(Channel, State) of
+        error -> #channel_state{};
+        {ok, Value} -> Value
+    end,
     case Parsed of
         {fail, Reason} -> {fail, Reason};
         {deck, Cmd} ->
-            case deck(Cmd, State) of
+            case deck(Cmd, ChannelState) of
                 {fail, Reason} -> {fail, Reason};
-                {ok, Results, NewState} -> {ok, {Results, NewState}}
+                {ok, Results, NewChannelState} ->
+                    NewState = orddict:store(Channel, NewChannelState, State),
+                    {ok, {Results, NewState}}
             end;
         _ ->
             case roll(Parsed) of
@@ -132,24 +140,25 @@ parse_and_process(String, State) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 deck({shuffle}, State) ->
-    {ok, ["shuffled the deck"], create_new_deck()};
+    { ok, ["shuffled the deck"], State#channel_state{deck=create_new_deck()} };
 
 deck({deal, Count}, State) when Count > ?DEAL_MAX ->
     {fail, deal_number_too_big};
 
 deck({deal, Count}, State) ->
-    deal_aux(Count, State, []).
+    {ok, Msgs, NewDeck} = deal_aux(Count, State#channel_state.deck, []),
+    { ok, Msgs, State#channel_state{deck=NewDeck} }.
 
-deal_aux(Count, State, Msg) ->
-    Length = length(State),
-    {Cards, NewState} = case Length > Count of
-        false -> {State, []};
-        true -> lists:split(Count, State)
+deal_aux(Count, Deck, Msg) ->
+    Length = length(Deck),
+    {Cards, NewDeck} = case Length > Count of
+        false -> {Deck, []};
+        true -> lists:split(Count, Deck)
     end,
     NewMsg = Msg ++ lists:map(fun(E) -> io_lib:format("dealt ~s", [E]) end, Cards),
     case Length > Count of
         false -> deal_aux(Count - Length, create_new_deck(), NewMsg ++ ["reshuffled the deck (no cards left)"]);
-        true -> {ok, NewMsg, NewState}
+        true -> {ok, NewMsg, NewDeck}
     end.
 
 create_new_deck() ->

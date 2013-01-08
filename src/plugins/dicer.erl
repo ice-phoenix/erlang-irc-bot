@@ -1,4 +1,4 @@
--module(plugins.d20_roll).
+-module(plugins.dicer).
 
 -author("Marat.Akhin@gmail.com").
 
@@ -17,34 +17,29 @@
 -import(io).
 -import(io_lib).
 -import(lists).
--import(d20_dice).
+-import(orddict).
+-import(dicer).
 
 init(_Args) ->
     random:seed(now()),
-    {ok, []}.
+    State = orddict:new(),
+    {ok, State}.
 
 terminate(_Args, _State) ->
     ok.
 
 handle_event(Msg, State) ->
     case Msg of
-        {in, Ref, [_Sender,
-                   _User,
-                   <<"PRIVMSG">>,
-                   <<_Receiver/binary>>,
-                   <<"!join ",Rest/binary>>]} ->
-            Ref:join(<<Rest/binary>>),
+        {in, Ref, [_Sender, _User, <<"PRIVMSG">>, <<_Receiver/binary>>, <<"!join ",Channel/binary>>]} ->
+            Ref:join(<<Channel/binary>>),
             {ok, State};
-        {in, Ref, [Sender,
-                   _User,
-                   <<"PRIVMSG">>,
-                   <<Receiver/binary>>,
-                   <<"!",Rest/binary>>]} ->
+        {in, Ref, [_Sender, _User, <<"PRIVMSG">>, <<"#",Receiver/binary>>, <<"!part">>]} ->
+            Ref:part(<<"#",Receiver/binary>>),
+            {ok, State};
+        {in, Ref, [Sender, _User, <<"PRIVMSG">>, <<Receiver/binary>>, <<"!",Cmd/binary>>]} ->
             NewState = case Receiver of
-                <<"#",_Channel/binary>> ->
-                    process_roll(State, Ref, Sender, Receiver, Rest);
-                _ ->
-                    process_roll(State, Ref, Sender, Sender, Rest)
+                <<"#",_Channel/binary>> -> process_roll(State, Ref, Sender, Receiver, Cmd);
+                _ ->                       process_roll(State, Ref, Sender, Sender,   Cmd)
             end,
             {ok, NewState};
         _ ->
@@ -52,7 +47,7 @@ handle_event(Msg, State) ->
     end.
 
 process_roll(State, Ref, Nick, Receiver, Cmd) ->
-    Results = d20_dice:parse_and_process(binary_to_list(Cmd), State),
+    Results = dicer:parse_and_process(binary_to_list(Cmd), Receiver, State),
     case Results of
         {fail, _} ->
             Ref:privmsg(<<Receiver/binary>>,
