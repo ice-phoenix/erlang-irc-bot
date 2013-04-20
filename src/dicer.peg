@@ -3,11 +3,10 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 input <- space? cmd delimited_cmd* tailer? `
-    erlang:display(Node),
     H = lists:nth(2, Node),
     T = lists:nth(3, Node),
     case lists:nth(4, Node) of
-        [] -> H ++ T;
+        [] -> [H] ++ T;
         _ -> throw({fail, tokens_left})
     end
 `;
@@ -140,7 +139,7 @@ parse_and_process(CmdString, Channel, State) ->
             {ok, Value} -> Value
         end,
         Cmds = parse(CmdString),
-        {ok, Results, NewChannelState} = process_cmds(Cmds, ChannelState, []),
+        {ok, {Results, NewChannelState}} = process_cmds(Cmds, ChannelState, []),
         NewState = orddict:store(Channel, NewChannelState, State),
         {ok, {Results, NewState}}
     catch
@@ -148,19 +147,19 @@ parse_and_process(CmdString, Channel, State) ->
     end.
 
 process_cmds([Cmd], ChannelState, Results) ->
-    {ok, R, NewChannelState} = process_single_cmd(Cmd, ChannelState),
-    {ok, Results ++ R, NewChannelState};
+    {ok, {R, NewChannelState}} = process_single_cmd(Cmd, ChannelState),
+    {ok, {Results ++ R, NewChannelState}};
 
 process_cmds([Cmd | Rest], ChannelState, Results) ->
-    {ok, R, NewChannelState} = process_single_cmd(Cmd, ChannelState),
+    {ok, {R, NewChannelState}} = process_single_cmd(Cmd, ChannelState),
     process_cmds(Rest, NewChannelState, Results ++ R).
 
 process_single_cmd(Cmd, ChannelState) ->
     {Visibility, What} = Cmd,
     Mapper = fun(Msg) -> {Visibility, Msg} end,
     case What of
-        {deck, Cmd} ->
-            {ok, Results, NewChannelState} = deck(Cmd, ChannelState),
+        {deck, Deck} ->
+            {ok, Results, NewChannelState} = deck(Deck, ChannelState),
             {ok, {lists:map(Mapper, Results), NewChannelState}};
         {roll, Roll} ->
             {ok, Results} = roll({roll, Roll}),
