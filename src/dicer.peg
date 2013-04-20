@@ -3,21 +3,20 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 input <- cmd delimited_cmd* tailer? `
-    H = lists:nth(1, Node),
-    T = lists:nth(2, Node),
-    case lists:nth(3, Node) of
-        [] -> lists:flatten([H] ++ T);
+    [H, T, Tailer] = Node,
+    case Tailer of
+        [] -> [H] ++ T;
         _ -> throw({fail, tokens_left})
     end
 `;
 
 cmd <- space? (shuffle / deal / roll) space? silent? space? `
-    Visibility = case lists:nth(4, Node) of
+    Steps = lists:nth(2, Node),
+    Scope = case lists:nth(4, Node) of
         [] -> public;
         V -> V
     end,
-    Cmds = lists:nth(2, Node),
-    lists:map(fun(E) -> {Visibility, E} end, Cmds)
+    #command{steps = Steps, scope = Scope}
 `;
 
 delimited_cmd <- space? delim cmd space? `lists:nth(3, Node)`;
@@ -27,7 +26,7 @@ delimited_cmd <- space? delim cmd space? `lists:nth(3, Node)`;
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 shuffle <- "shuffle" `
-    [ {deck, {shuffle}} ]
+    [ #deck_cmd{tree = {shuffle}} ]
 `;
 
 deal <- "deal" space? natural? `
@@ -35,7 +34,7 @@ deal <- "deal" space? natural? `
         [] -> 1;
         C -> C
     end,
-    [ {deck, {deal, Count}} ]
+    [ #deck_cmd{tree = {deal, Count}} ]
 `;
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -43,20 +42,24 @@ deal <- "deal" space? natural? `
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 roll <- "roll" space? roll_desc space? delimited_roll_desc* `
-    H = lists:nth(3, Node),
-    T = lists:nth(5, Node),
-    lists:map(fun(E) -> {roll, E} end, [H] ++ T)
+	[_, _, H, _, T] = Node,
+    [H] ++ T
 `;
 
-roll_desc <- repeative / additive ` Node `;
-
-delimited_roll_desc <- delim (repeative / additive) `
-    lists:nth(2, Node)
+roll_desc <- (repeative / additive) color? `
+    Roll = lists:nth(1, Node),
+    Color = case lists:nth(2, Node) of
+        [] -> none;
+        C -> C
+    end,
+    #roll_cmd{tree = Roll, color = Color}
 `;
+
+delimited_roll_desc <- space? delim roll_desc space? `lists:nth(3, Node)`;
 
 repeative <- natural repeat additive `
-    [Count, _, Roll] = Node,
-    {repeat, Count, Roll}
+    [Count, _, What] = Node,
+    {repeat, Count, What}
 `;
 
 additive <- multitive (plus / minus) additive / multitive `
@@ -97,11 +100,10 @@ roller <- natural? (die / open_die) natural (keep natural)? `
         [] -> 1;
         C -> C
     end,
-    Type = lists:nth(2, Node),
-    Faces = lists:nth(3, Node),
-    case Node of
-        [_, _, _, []] -> {sum, {keep, Count, [{Type, Count, Faces}]}};
-        [_, _, _, [keep, Keep]] -> {sum, {keep, Keep, [{Type, Count, Faces}]}}
+	[_, Type, Faces, _] = Node,
+    case lists:nth(4, Node) of
+        []           -> {sum, {keep, Count, [{Type, Count, Faces}]}};
+        [keep, Keep] -> {sum, {keep, Keep, [{Type, Count, Faces}]}}
     end
 `;
 
@@ -161,7 +163,7 @@ tailer <- .* ~;
 -define(MAX, 255).
 -define(DEAL_MAX, 10).
 
--record(channel_state, {deck=[]}).
+-include("dicer_records.hrl").
 
 parse_and_process(CmdString, Channel, State) ->
     try
@@ -177,24 +179,35 @@ parse_and_process(CmdString, Channel, State) ->
         throw:{fail, Reason} -> {fail, Reason}
     end.
 
-process_cmds([Cmd], ChannelState, Results) ->
-    {ok, {R, NewChannelState}} = process_single_cmd(Cmd, ChannelState),
-    {ok, {Results ++ R, NewChannelState}};
+process_cmds([], ChannelState, Results) ->
+    {ok, {lists:reverse(Results), ChannelState}};
 
 process_cmds([Cmd | Rest], ChannelState, Results) ->
-    {ok, {R, NewChannelState}} = process_single_cmd(Cmd, ChannelState),
-    process_cmds(Rest, NewChannelState, Results ++ R).
+    {ok, {Rs, NewChannelState}} = process_single_cmd(Cmd, ChannelState),
+    process_cmds(Rest, NewChannelState, Rs ++ Results).
 
 process_single_cmd(Cmd, ChannelState) ->
-    {Visibility, What} = Cmd,
-    Mapper = fun(Msg) -> {Visibility, Msg} end,
-    case What of
-        {deck, Deck} ->
-            {ok, Results, NewChannelState} = deck(Deck, ChannelState),
-            {ok, {lists:map(Mapper, Results), NewChannelState}};
-        {roll, Roll} ->
-            {ok, Results} = roll({roll, Roll}),
-            {ok, {lists:map(Mapper, Results), ChannelState}}
+    #command{steps = Steps, scope = Scope} = Cmd,
+    Scoper = fun(E) -> E#result{scope = Scope} end,
+    {ok, {Results, NewChannelState}} = process_steps(Steps, ChannelState, []),
+    {ok, {lists:map(Scoper, Results), NewChannelState}}.
+
+process_steps([], ChannelState, Results) ->
+    {ok, {Results, ChannelState}};
+
+process_steps([Step | Rest], ChannelState, Results) ->
+    {ok, {R, NewChannelState}} = process_single_step(Step, ChannelState),
+    process_steps(Rest, NewChannelState, [R] ++ Results).
+
+process_single_step(Step, ChannelState) ->
+    case Step of
+        #deck_cmd{tree = Tree} ->
+            {ok, Result, NewChannelState} = deck(Tree, ChannelState),
+            {ok, {Result, NewChannelState}};
+        #roll_cmd{tree = Tree, color = Color} ->
+            Colorer = fun(E) -> E#result{color = Color} end,
+            {ok, Result} = roll(Tree),
+            {ok, {Colorer(Result), ChannelState}}
     end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -202,28 +215,28 @@ process_single_cmd(Cmd, ChannelState) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 deck({shuffle}, State) ->
-    { ok, ["shuffled the deck"], State#channel_state{deck=create_new_deck()} };
+    {ok, #result{msgs = ["shuffled the deck"]}, State#channel_state{deck=create_new_deck()}};
 
 deck({deal, Count}, State) when Count > ?DEAL_MAX ->
     throw({fail, deal_number_too_big});
 
 deck({deal, Count}, State) ->
     {ok, Msgs, NewDeck} = deal_aux(Count, State#channel_state.deck, []),
-    { ok, Msgs, State#channel_state{deck=NewDeck} };
+    {ok, #result{msgs = Msgs}, State#channel_state{deck=NewDeck}};
 
-deck(Foo, _State) ->
+deck(_Tree, _State) ->
     throw({fail, unsupported_deal_cmd}).
 
-deal_aux(Count, Deck, Msg) ->
+deal_aux(Count, Deck, Msgs) ->
     Length = length(Deck),
     {Cards, NewDeck} = case Length > Count of
         false -> {Deck, []};
         true -> lists:split(Count, Deck)
     end,
-    NewMsg = Msg ++ lists:map(fun(E) -> io_lib:format("dealt ~s", [E]) end, Cards),
+    NewMsgs = Msgs ++ lists:map(fun(E) -> io_lib:format("dealt ~s", [E]) end, Cards),
     case Length > Count of
-        false -> deal_aux(Count - Length, create_new_deck(), NewMsg ++ ["reshuffled the deck (no cards left)"]);
-        true -> {ok, NewMsg, NewDeck}
+        false -> deal_aux(Count - Length, create_new_deck(), NewMsgs ++ ["reshuffled the deck (no cards left)"]);
+        true -> {ok, NewMsgs, NewDeck}
     end.
 
 create_new_deck() ->
@@ -236,22 +249,23 @@ create_new_deck() ->
 % Rolling
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-roll({roll, Tree}) ->
+roll(Tree) ->
     try
         Rolls = roll_aux(Tree, []),
-        Results = case length(Rolls) > 1 of
+        Msgs = case length(Rolls) > 1 of
             true ->
                 {R, _} = lists:mapfoldl(
                             fun({Roll, Desc}, Idx) ->
                                 {io_lib:format("rolled ~w -> ~s (roll #~w)", [Roll, Desc, Idx]), Idx + 1}
                             end,
                             1,
-                            Rolls), R;
+                            Rolls),
+                R;
             false -> 
                 [{Roll, Desc}] = Rolls,
                 [ io_lib:format("rolled ~w -> ~s", [Roll, Desc]) ]
         end,
-        {ok, Results}
+        {ok, #result{msgs = Msgs}}
     catch
         throw:number_too_big ->
             throw({fail, number_too_big});
@@ -259,22 +273,19 @@ roll({roll, Tree}) ->
             throw({fail, number_too_small});
         error:_ ->
             throw({fail, nested_error})
-    end;
-
-roll(Foo) ->
-    throw({fail, unsupported_roll_cmd}).
+    end.
 
 roll_aux({repeat, Count, Tree}, Acc) when Count > ?MAX ->
     throw(number_too_big);
 
 roll_aux({repeat, Count, Tree}, Acc) when Count > 0 ->
-    roll_aux({repeat, Count - 1, Tree}, Acc ++ process_tree(Tree));
+    roll_aux({repeat, Count - 1, Tree}, process_tree(Tree) ++ Acc);
 
 roll_aux({repeat, 0, Tree}, Acc) ->
-    Acc;
+    lists:reverse(Acc);
 
 roll_aux(Tree, Acc) ->
-    Acc ++ process_tree(Tree).
+    process_tree(Tree) ++ Acc.
 
 process_tree(Tree) ->
     [process_tree_aux(Tree)].
@@ -291,7 +302,7 @@ throw_open_die(Faces) ->
 
 throw_open_die_aux(Faces, Rolls) ->
     Roll = random:uniform(Faces),
-    Total = Rolls ++ [Roll],
+    Total = [Roll] ++ Rolls,
     case Roll of
         Faces ->
             throw_open_die_aux(Faces, Total);
@@ -360,8 +371,7 @@ process_tree_aux({Type, Count, Faces}) when Type == die;
             lists:map(fun(Face) -> throw_wild_die(Face) end,
                       FaceList)
     end,
-    SortedRolls = sort_rolls(Rolls),
-    SortedRolls;
+    sort_rolls(Rolls);
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Arithmetics

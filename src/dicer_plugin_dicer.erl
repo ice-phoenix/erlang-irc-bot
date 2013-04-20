@@ -13,6 +13,8 @@
     code_change/3
 ]).
 
+-include("dicer_records.hrl").
+
 init(_Args) ->
     random:seed(now()),
     State = orddict:new(),
@@ -31,33 +33,41 @@ handle_event(Msg, State) ->
             {ok, State};
         {in, Ref, [Sender, _User, <<"PRIVMSG">>, <<Receiver/binary>>, <<"!",Cmd/binary>>]} ->
             NewState = case Receiver of
-                <<"#",_Channel/binary>> -> process_roll(State, Ref, Sender, Receiver, Cmd);
-                _ ->                       process_roll(State, Ref, Sender, Sender,   Cmd)
+                <<"#",_Channel/binary>> -> process_cmd(State, Ref, Sender, Receiver, Cmd);
+                _ ->                       process_cmd(State, Ref, Sender, Sender,   Cmd)
             end,
             {ok, NewState};
         _ ->
             {ok, State}
     end.
 
-process_roll(State, Ref, Nick, Receiver, Cmd) ->
-    Results = dicer:parse_and_process(binary_to_list(Cmd), Receiver, State),
-    case Results of
+process_cmd(State, Ref, Nick, Receiver, Cmd) ->
+    Processed = dicer:parse_and_process(binary_to_list(Cmd), Receiver, State),
+    case Processed of
         {fail, _} ->
             Ref:privmsg(<<Receiver/binary>>,
                         "WTF???"),
             State;
-        {ok, {Msgs, NewState}} ->
+        {ok, {Results, NewState}} ->
             lists:foreach(
-                fun(E) ->
-                    {Visibility, Msg} = E,
-                    case Visibility of
-                        public ->  Ref:privmsg(<<Receiver/binary>>, io_lib:format("~s ~s", [Nick, Msg]));
-                        private -> Ref:privmsg(<<Nick/binary>>, io_lib:format("~s ~s", ["You", Msg]))
-                    end
-                end,
-                Msgs),
+                fun(Res) -> process_result(Res, Ref, Nick, Receiver) end,
+                Results),
             NewState
     end.
+
+process_result(Result, Ref, Nick, Receiver) ->
+    #result{msgs = Msgs, color = Color, scope = Scope} = Result,
+    lists:foreach(
+        fun(Msg) ->
+            case Scope of
+                public  -> send_msg(Msg, Color, Ref,  Nick, Receiver);
+                private -> send_msg(Msg, Color, Ref, "You", Nick)
+            end
+        end,
+        Msgs).
+
+send_msg(Msg, _Color, Ref, Nick, Receiver) ->
+    Ref:privmsg(<<Receiver/binary>>, io_lib:format("~s ~s", [Nick, Msg])).
 
 handle_call(_Request, State) ->
     {ok, not_implemented, State}.
