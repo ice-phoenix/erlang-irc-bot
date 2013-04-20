@@ -395,8 +395,8 @@ mul(Arg1, Arg2) when is_number(Arg1), is_number(Arg2) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Pprint the results
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-pprint(Term, Sep) ->
-    pprint_aux(Term, "", Sep).
+% pprint(Term, Sep) ->
+%     pprint_aux(Term, "", Sep).
 
 pprint(Term) ->
     pprint_aux(Term, "", ",").
@@ -430,4 +430,3 @@ sort_rolls(Rolls) when is_list(Rolls) ->
 sort_rolls(Rolls) ->
     Rolls.
 `
-

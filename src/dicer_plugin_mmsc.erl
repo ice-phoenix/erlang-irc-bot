@@ -77,8 +77,8 @@ code_change(_OldVsn, State, _Extra) ->
 pprint(Term, Sep) ->
     pprint_aux(Term, "", Sep).
 
-pprint(Term) ->
-    pprint_aux(Term, "", ",").
+% pprint(Term) ->
+%     pprint_aux(Term, "", ",").
 
 pprint_aux(Number, Str, _Sep) when is_integer(Number) ->
     Str ++ io_lib:format("~B", [Number]);
