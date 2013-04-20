@@ -6,7 +6,7 @@ input <- cmd delimited_cmd* tailer? `
     H = lists:nth(1, Node),
     T = lists:nth(2, Node),
     case lists:nth(3, Node) of
-        [] -> [H] ++ T;
+        [] -> lists:flatten([H] ++ T);
         _ -> throw({fail, tokens_left})
     end
 `;
@@ -16,7 +16,8 @@ cmd <- space? (shuffle / deal / roll) space? silent? space? `
         [] -> public;
         V -> V
     end,
-    {Visibility, lists:nth(2, Node)}
+    Cmds = lists:nth(2, Node),
+    lists:map(fun(E) -> {Visibility, E} end, Cmds)
 `;
 
 delimited_cmd <- space? delim cmd space? `lists:nth(3, Node)`;
@@ -26,7 +27,7 @@ delimited_cmd <- space? delim cmd space? `lists:nth(3, Node)`;
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 shuffle <- "shuffle" `
-    {deck, {shuffle}}
+    [ {deck, {shuffle}} ]
 `;
 
 deal <- "deal" space? natural? `
@@ -34,15 +35,23 @@ deal <- "deal" space? natural? `
         [] -> 1;
         C -> C
     end,
-    {deck, {deal, Count}}
+    [ {deck, {deal, Count}} ]
 `;
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Rolling
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-roll <- "roll" space? (repeative / additive) `
-    {roll, lists:nth(3, Node)}
+roll <- "roll" space? roll_desc space? delimited_roll_desc* `
+    H = lists:nth(3, Node),
+    T = lists:nth(5, Node),
+    lists:map(fun(E) -> {roll, E} end, [H] ++ T)
+`;
+
+roll_desc <- repeative / additive ` Node `;
+
+delimited_roll_desc <- delim (repeative / additive) `
+    lists:nth(2, Node)
 `;
 
 repeative <- natural repeat additive `
@@ -118,6 +127,28 @@ space <- [ ]* `ignore`;
 delim <- "," space? `ignore`;
 
 silent <- "silent" `private`;
+
+color <- (red /
+          orange /
+          yellow /
+          green /
+          teal /
+          blue /
+          purple /
+          silver /
+          black /
+          white) ` lists:nth(1, Node) `;
+
+red    <- "red"    ` red `;
+orange <- "orange" ` orange `;
+yellow <- "yellow" ` yellow `;
+green  <- "green"  ` green `;
+teal   <- "teal"   ` teal `;
+blue   <- "blue"   ` blue `;
+purple <- "purple" ` purple `;
+silver <- "silver" ` silver `;
+black  <- "black"  ` black `;
+white  <- "white"  ` white `;
 
 tailer <- .* ~;
 
