@@ -208,11 +208,18 @@ create_new_deck() ->
 roll({roll, Tree}) ->
     try
         Rolls = roll_aux(Tree, []),
-        Results = lists:map(
-                    fun({Roll, Desc}) ->
-                        io_lib:format("rolled ~w -> ~s", [Roll, Desc])
-                    end,
-                    Rolls),
+        Results = case length(Rolls) > 1 of
+            true ->
+                {R, _} = lists:mapfoldl(
+                            fun({Roll, Desc}, Idx) ->
+                                {io_lib:format("rolled ~w -> ~s (roll #~w)", [Roll, Desc, Idx]), Idx + 1}
+                            end,
+                            1,
+                            Rolls), R;
+            false -> 
+                [{Roll, Desc}] = Rolls,
+                [ io_lib:format("rolled ~w -> ~s", [Roll, Desc]) ]
+        end,
         {ok, Results}
     catch
         throw:number_too_big ->
@@ -232,7 +239,7 @@ roll_aux({repeat, Count, Tree}, Acc) when Count > ?MAX ->
 roll_aux({repeat, Count, Tree}, Acc) when Count > 0 ->
     roll_aux({repeat, Count - 1, Tree}, Acc ++ process_tree(Tree));
 
-roll_aux({repeat, Count, Tree}, Acc) ->
+roll_aux({repeat, 0, Tree}, Acc) ->
     Acc;
 
 roll_aux(Tree, Acc) ->
