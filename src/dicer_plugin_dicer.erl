@@ -1,4 +1,4 @@
--module(plugins.dicer).
+-module(dicer_plugin_dicer).
 
 -author("Marat.Akhin@gmail.com").
 
@@ -12,13 +12,6 @@
     handle_info/2,
     code_change/3
 ]).
-
--import(random).
--import(io).
--import(io_lib).
--import(lists).
--import(orddict).
--import(dicer).
 
 init(_Args) ->
     random:seed(now()),

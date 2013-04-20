@@ -1,4 +1,4 @@
--module(plugins.mmsc).
+-module(dicer_plugin_mmsc).
 
 -author("Marat.Akhin@gmail.com").
 
@@ -12,12 +12,6 @@
     handle_info/2,
     code_change/3
 ]).
-
--import(file).
--import(io).
--import(io_lib).
--import(lists).
--import(proplists).
 
 init(Args) ->
     StatusFile = proplists:get_value(status_file, Args),
