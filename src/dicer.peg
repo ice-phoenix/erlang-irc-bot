@@ -1,13 +1,26 @@
-cmd <- space? (shuffle / deal / roll) space? silent? tailer? `
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Entry point
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+input <- space? cmd delimited_cmd* tailer? `
+    erlang:display(Node),
+    H = lists:nth(2, Node),
+    T = lists:nth(3, Node),
+    case lists:nth(4, Node) of
+        [] -> H ++ T;
+        _ -> throw({fail, tokens_left})
+    end
+`;
+
+cmd <- space? (shuffle / deal / roll) space? silent? `
     Visibility = case lists:nth(4, Node) of
         [] -> public;
         V -> V
     end,
-    case lists:nth(5, Node) of
-        [] -> {Visibility, lists:nth(2, Node)};
-        _ -> throw({fail, tokens_left})
-    end
+    {Visibility, lists:nth(2, Node)}
 `;
+
+delimited_cmd <- delim cmd `lists:nth(2, Node)`;
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Deck control
@@ -103,6 +116,8 @@ close_brace <- space? ")" space? `close_brace`;
 
 space <- [ ]* `ignore`;
 
+delim <- "," space? `ignore`;
+
 silent <- "silent" `private`;
 
 tailer <- .* ~;
@@ -120,23 +135,36 @@ tailer <- .* ~;
 
 parse_and_process(CmdString, Channel, State) ->
     try
-        {Visibility, What} = parse(CmdString),
         ChannelState = case orddict:find(Channel, State) of
             error -> #channel_state{};
             {ok, Value} -> Value
         end,
-        Mapper = fun(Msg) -> {Visibility, Msg} end,
-        case What of
-            {deck, Cmd} ->
-                {ok, Results, NewChannelState} = deck(Cmd, ChannelState),
-                NewState = orddict:store(Channel, NewChannelState, State),
-                {ok, {lists:map(Mapper, Results), NewState}};
-            _ ->
-                {ok, Results} = roll(What),
-                {ok, {lists:map(Mapper, Results), State}}
-        end
+        Cmds = parse(CmdString),
+        {ok, Results, NewChannelState} = process_cmds(Cmds, ChannelState, []),
+        NewState = orddict:store(Channel, NewChannelState, State),
+        {ok, {Results, NewState}}
     catch
         throw:{fail, Reason} -> {fail, Reason}
+    end.
+
+process_cmds([Cmd], ChannelState, Results) ->
+    {ok, R, NewChannelState} = process_single_cmd(Cmd, ChannelState),
+    {ok, Results ++ R, NewChannelState};
+
+process_cmds([Cmd | Rest], ChannelState, Results) ->
+    {ok, R, NewChannelState} = process_single_cmd(Cmd, ChannelState),
+    process_cmds(Rest, NewChannelState, Results ++ R).
+
+process_single_cmd(Cmd, ChannelState) ->
+    {Visibility, What} = Cmd,
+    Mapper = fun(Msg) -> {Visibility, Msg} end,
+    case What of
+        {deck, Cmd} ->
+            {ok, Results, NewChannelState} = deck(Cmd, ChannelState),
+            {ok, {lists:map(Mapper, Results), NewChannelState}};
+        {roll, Roll} ->
+            {ok, Results} = roll({roll, Roll}),
+            {ok, {lists:map(Mapper, Results), ChannelState}}
     end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
