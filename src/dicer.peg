@@ -2,16 +2,16 @@
 % Entry point
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-input <- space? cmd delimited_cmd* tailer? `
-    H = lists:nth(2, Node),
-    T = lists:nth(3, Node),
-    case lists:nth(4, Node) of
+input <- cmd delimited_cmd* tailer? `
+    H = lists:nth(1, Node),
+    T = lists:nth(2, Node),
+    case lists:nth(3, Node) of
         [] -> [H] ++ T;
         _ -> throw({fail, tokens_left})
     end
 `;
 
-cmd <- space? (shuffle / deal / roll) space? silent? `
+cmd <- space? (shuffle / deal / roll) space? silent? space? `
     Visibility = case lists:nth(4, Node) of
         [] -> public;
         V -> V
@@ -19,7 +19,7 @@ cmd <- space? (shuffle / deal / roll) space? silent? `
     {Visibility, lists:nth(2, Node)}
 `;
 
-delimited_cmd <- delim cmd `lists:nth(2, Node)`;
+delimited_cmd <- space? delim cmd space? `lists:nth(3, Node)`;
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Deck control
