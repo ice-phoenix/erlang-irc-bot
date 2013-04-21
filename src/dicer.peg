@@ -36,7 +36,7 @@ cmd <- space? (shuffle / deal / roll) space? silent? space? color? space? `
         Cmds)
 `;
 
-delimited_cmd <- space? delim cmd space? `lists:nth(3, Node)`;
+delimited_cmd <- delim cmd `lists:nth(2, Node)`;
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Deck control
@@ -75,7 +75,7 @@ roll_desc <- (repeative / additive) color? `
     #command{steps = [Step], color = Color}
 `;
 
-delimited_roll_desc <- space? delim roll_desc space? `lists:nth(3, Node)`;
+delimited_roll_desc <- delim roll_desc `lists:nth(2, Node)`;
 
 repeative <- natural repeat additive `
     [Count, _, What] = Node,
@@ -192,7 +192,10 @@ parse_and_process(CmdString, Channel, State) ->
             error -> #channel_state{};
             {ok, Value} -> Value
         end,
-        Cmds = parse(CmdString),
+        Cmds = case parse(CmdString) of
+            {fail, _} -> throw({fail, parse_failed});
+            C -> C
+        end,
         {ok, {Results, NewChannelState}} = process_cmds(Cmds, ChannelState, []),
         NewChannelStates = orddict:store(Channel, NewChannelState, ChannelStates),
         {ok, {Results, State#dicer_state{channel_states = NewChannelStates}}}
