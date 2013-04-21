@@ -3,8 +3,8 @@
 -record(color_desc, {name = "", fg = "1", bg = none}).
 -record(channel_state, {deck = []}).
 
--record(command,  {steps = [], scope = public}).
--record(roll_cmd, {tree = {none}, color = none}).
+-record(command,  {steps = [], scope = none, color = none}).
+-record(roll_cmd, {tree = {none}}).
 -record(deck_cmd, {tree = {none}}).
 
--record(result, {msgs=[], color = none, scope = public}).
+-record(result, {msgs=[], color = none, scope = none}).

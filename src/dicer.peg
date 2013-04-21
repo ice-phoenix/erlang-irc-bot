@@ -5,18 +5,35 @@
 input <- cmd delimited_cmd* tailer? `
     [H, T, Tailer] = Node,
     case Tailer of
-        [] -> [H] ++ T;
+        [] -> lists:flatten([H] ++ T);
         _ -> throw({fail, tokens_left})
     end
 `;
 
-cmd <- space? (shuffle / deal / roll) space? silent? space? `
-    Steps = lists:nth(2, Node),
+cmd <- space? (shuffle / deal / roll) space? silent? space? color? space? `
+    Cmds = lists:nth(2, Node),
     Scope = case lists:nth(4, Node) of
         [] -> public;
         V -> V
     end,
-    #command{steps = Steps, scope = Scope}
+    Color = case lists:nth(6, Node) of
+        [] -> none;
+        C -> C
+    end,
+    lists:map(
+        fun(Cmd) ->
+            case Cmd of
+                #command{scope = none, color = none} ->
+                    Cmd#command{scope = Scope, color = Color};
+                #command{scope = none} ->
+                    Cmd#command{scope = Scope};
+                #command{color = none} ->
+                    Cmd#command{color = Color};
+                _ ->
+                    Cmd
+            end
+        end,
+        Cmds)
 `;
 
 delimited_cmd <- space? delim cmd space? `lists:nth(3, Node)`;
@@ -26,7 +43,8 @@ delimited_cmd <- space? delim cmd space? `lists:nth(3, Node)`;
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 shuffle <- "shuffle" `
-    [ #deck_cmd{tree = {shuffle}} ]
+    Step = #deck_cmd{tree = {shuffle}},
+    [ #command{steps = [Step]} ]
 `;
 
 deal <- "deal" space? natural? `
@@ -34,7 +52,8 @@ deal <- "deal" space? natural? `
         [] -> 1;
         C -> C
     end,
-    [ #deck_cmd{tree = {deal, Count}} ]
+    Step = #deck_cmd{tree = {deal, Count}},
+    [ #command{steps = [Step]} ]  
 `;
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -52,7 +71,8 @@ roll_desc <- (repeative / additive) color? `
         [] -> none;
         C -> C
     end,
-    #roll_cmd{tree = Roll, color = Color}
+    Step = #roll_cmd{tree = Roll},
+    #command{steps = [Step], color = Color}
 `;
 
 delimited_roll_desc <- space? delim roll_desc space? `lists:nth(3, Node)`;
@@ -188,10 +208,12 @@ process_cmds([Cmd | Rest], ChannelState, Results) ->
     process_cmds(Rest, NewChannelState, Rs ++ Results).
 
 process_single_cmd(Cmd, ChannelState) ->
-    #command{steps = Steps, scope = Scope} = Cmd,
+    #command{steps = Steps, scope = Scope, color = Color} = Cmd,
     Scoper = fun(E) -> E#result{scope = Scope} end,
+    Colorer = fun(E) -> E#result{color = Color} end,
+    Mapper = fun(E) -> Scoper(Colorer(E)) end,
     {ok, {Results, NewChannelState}} = process_steps(Steps, ChannelState, []),
-    {ok, {lists:map(Scoper, Results), NewChannelState}}.
+    {ok, {lists:map(Mapper, Results), NewChannelState}}.
 
 process_steps([], ChannelState, Results) ->
     {ok, {Results, ChannelState}};
@@ -205,10 +227,9 @@ process_single_step(Step, ChannelState) ->
         #deck_cmd{tree = Tree} ->
             {ok, Result, NewChannelState} = deck(Tree, ChannelState),
             {ok, {Result, NewChannelState}};
-        #roll_cmd{tree = Tree, color = Color} ->
-            Colorer = fun(E) -> E#result{color = Color} end,
+        #roll_cmd{tree = Tree} ->
             {ok, Result} = roll(Tree),
-            {ok, {Colorer(Result), ChannelState}}
+            {ok, {Result, ChannelState}}
     end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
