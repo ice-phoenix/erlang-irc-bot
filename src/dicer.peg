@@ -139,7 +139,7 @@ color <- (red /
           purple /
           silver /
           black /
-          white) ` lists:nth(1, Node) `;
+          white) ` Node `;
 
 red    <- "red"    ` red `;
 orange <- "orange" ` orange `;
@@ -167,14 +167,15 @@ tailer <- .* ~;
 
 parse_and_process(CmdString, Channel, State) ->
     try
-        ChannelState = case orddict:find(Channel, State) of
+        ChannelStates = State#dicer_state.channel_states,
+        ChannelState = case orddict:find(Channel, ChannelStates) of
             error -> #channel_state{};
             {ok, Value} -> Value
         end,
         Cmds = parse(CmdString),
         {ok, {Results, NewChannelState}} = process_cmds(Cmds, ChannelState, []),
-        NewState = orddict:store(Channel, NewChannelState, State),
-        {ok, {Results, NewState}}
+        NewChannelStates = orddict:store(Channel, NewChannelState, ChannelStates),
+        {ok, {Results, State#dicer_state{channel_states = NewChannelStates}}}
     catch
         throw:{fail, Reason} -> {fail, Reason}
     end.

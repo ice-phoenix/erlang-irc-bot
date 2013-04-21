@@ -17,8 +17,20 @@
 
 init(_Args) ->
     random:seed(now()),
-    State = orddict:new(),
-    {ok, State}.
+    Colors = [
+        {red,    #color_desc{name = "red",    fg = "4"            }},
+        {orange, #color_desc{name = "orange", fg = "7",  bg = "1" }},
+        {yellow, #color_desc{name = "yellow", fg = "8",  bg = "1" }},
+        {green,  #color_desc{name = "green",  fg = "3"            }},
+        {teal,   #color_desc{name = "teal",   fg = "10"           }},
+        {blue,   #color_desc{name = "blue",   fg = "2"            }},
+        {purple, #color_desc{name = "purple", fg = "6"            }},
+        {silver, #color_desc{name = "silver", fg = "15", bg = "1" }},
+        {black,  #color_desc{name = "black",  fg = "1"            }},
+        {white,  #color_desc{name = "white",  fg = "0",  bg = "1" }}
+    ],
+    ColorsDict = orddict:from_list(Colors),
+    {ok, #dicer_state{colors = ColorsDict}}.
 
 terminate(_Args, _State) ->
     ok.
@@ -50,24 +62,34 @@ process_cmd(State, Ref, Nick, Receiver, Cmd) ->
             State;
         {ok, {Results, NewState}} ->
             lists:foreach(
-                fun(Res) -> process_result(Res, Ref, Nick, Receiver) end,
+                fun(Res) -> process_result(State, Res, Ref, Nick, Receiver) end,
                 Results),
             NewState
     end.
 
-process_result(Result, Ref, Nick, Receiver) ->
+process_result(State, Result, Ref, Nick, Receiver) ->
     #result{msgs = Msgs, color = Color, scope = Scope} = Result,
     lists:foreach(
         fun(Msg) ->
             case Scope of
-                public  -> send_msg(Msg, Color, Ref,  Nick, Receiver);
-                private -> send_msg(Msg, Color, Ref, "You", Nick)
+                public  -> send_msg(State, Msg, Color, Ref,  Nick, Receiver);
+                private -> send_msg(State, Msg, Color, Ref, "You", Nick)
             end
         end,
         Msgs).
 
-send_msg(Msg, _Color, Ref, Nick, Receiver) ->
-    Ref:privmsg(<<Receiver/binary>>, io_lib:format("~s ~s", [Nick, Msg])).
+send_msg(State, Msg, Color, Ref, Nick, Receiver) ->
+    Ref:privmsg(<<Receiver/binary>>, format_msg(State, Nick, Msg, Color)).
+
+format_msg(State, Nick, Msg, Color) ->
+    BaseMsg = io_lib:format("~s ~s", [Nick, Msg]),
+    case orddict:find(Color, State#dicer_state.colors) of
+        error -> BaseMsg;
+        {ok, #color_desc{name = ColorName, fg = ColorFg, bg = none}} ->
+            [3] ++ ColorFg ++ BaseMsg ++ io_lib:format(" (~s)", [ColorName]);
+        {ok, #color_desc{name = ColorName, fg = ColorFg, bg = ColorBg}} ->
+            [3] ++ ColorFg ++ "," ++ ColorBg ++ BaseMsg ++ io_lib:format(" (~s)", [ColorName])
+    end.
 
 handle_call(_Request, State) ->
     {ok, not_implemented, State}.
@@ -77,4 +99,3 @@ handle_info(_Info, State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-
