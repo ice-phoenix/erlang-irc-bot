@@ -14,11 +14,7 @@
 ]).
 
 init(Args) ->
-    StatusFile = proplists:get_value(status_file, Args),
-    case StatusFile of
-        undefined -> {error, "No status file specified"};
-        _ -> {ok, [{status_file, StatusFile}]}
-    end.
+    {ok, Args}.
 
 terminate(_Args, _State) ->
     ok.
@@ -43,20 +39,11 @@ handle_event(Msg, State) ->
     end.
 
 process_command("servers", State, Ref, _Nick, Receiver) ->
-    StatusFile = proplists:get_value(status_file, State),
-    {ok, Status} = file:consult(StatusFile),
-    lists:foreach(
-        fun(E) ->
-            {Server, Players} = E,
-            Msg = case Players of
-                [] -> "Anybody home???";
-                _ -> pprint(Players, ", ")
-            end,
-            Ref:privmsg(<<Receiver/binary>>,
-                        io_lib:format("~s : ~s", [Server, Msg]))
-        end,
-        Status
-    ),
+    User = proplists:get_value(user, State),
+    Pass = proplists:get_value(pass, State),
+    Url = proplists:get_value(url, State),
+    Json = mmm_rest_api:get_servers(User, Pass, Url),
+    io:format("~p~n", [Json]),
     State;
 
 process_command(_Cmd, State, _Ref, _Nick, _Receiver) ->
@@ -97,4 +84,3 @@ pprint_aux([], Str, _Sep) ->
 
 pprint_aux([Term | T], Str, Sep) ->
     pprint_aux(T, Str ++ Term ++ Sep, Sep).
-
