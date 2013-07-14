@@ -61,7 +61,7 @@ process_command("servers", State, Ref, _Nick, Receiver) ->
 process_command(_Cmd, State, _Ref, _Nick, _Receiver) ->
     State.
 
-send_server_status_msg(State, Server, Ref, Receiver) ->
+send_server_status_msg(_State, Server, Ref, Receiver) ->
     Msg = io_lib:format("~B (~s): ~s",
         [
             Server#server.port,
