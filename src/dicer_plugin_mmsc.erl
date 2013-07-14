@@ -13,6 +13,8 @@
     code_change/3
 ]).
 
+-include("mmm_rest_api_records.hrl").
+
 init(Args) ->
     {ok, Args}.
 
@@ -42,12 +44,31 @@ process_command("servers", State, Ref, _Nick, Receiver) ->
     User = proplists:get_value(user, State),
     Pass = proplists:get_value(pass, State),
     Url = proplists:get_value(url, State),
-    Json = mmm_rest_api:get_servers(User, Pass, Url),
-    io:format("~p~n", [Json]),
+    Servers = mmm_rest_api:get_servers(User, Pass, Url),
+    FServers = lists:filter(
+        fun(E) -> E#server.empty == false end,
+        Servers
+    ),
+    case length(FServers) of
+        0 -> Ref:privmsg(<<Receiver/binary>>, "Nobody's home...");
+        _ -> lists:foreach(
+                 fun(E) -> send_server_status_msg(State, E, Ref, Receiver) end,
+                 FServers
+             )
+    end,
     State;
 
 process_command(_Cmd, State, _Ref, _Nick, _Receiver) ->
     State.
+
+send_server_status_msg(State, Server, Ref, Receiver) ->
+    Msg = io_lib:format("~B (~s): ~s",
+        [
+            Server#server.port,
+            Server#server.status,
+            string:join(Server#server.players, ", ")
+        ]),
+    Ref:privmsg(<<Receiver/binary>>, Msg).
 
 handle_call(_Request, State) ->
     {ok, not_implemented, State}.
@@ -57,30 +78,3 @@ handle_info(_Info, State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Pprint Erlang terms
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-pprint(Term, Sep) ->
-    pprint_aux(Term, "", Sep).
-
-% pprint(Term) ->
-%     pprint_aux(Term, "", ",").
-
-pprint_aux(Number, Str, _Sep) when is_integer(Number) ->
-    Str ++ io_lib:format("~B", [Number]);
-
-pprint_aux([Number], Str, _Sep) when is_integer(Number) ->
-    Str ++ io_lib:format("~B", [Number]);
-
-pprint_aux([Number | T], Str, Sep) when is_integer(Number) ->
-    pprint_aux(T, Str ++ io_lib:format("~B,", [Number]), Sep);
-
-pprint_aux([Term], Str, _Sep) ->
-    Str ++ Term;
-
-pprint_aux([], Str, _Sep) ->
-    Str;
-
-pprint_aux([Term | T], Str, Sep) ->
-    pprint_aux(T, Str ++ Term ++ Sep, Sep).
