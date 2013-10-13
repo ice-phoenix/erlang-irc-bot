@@ -15,8 +15,8 @@
 
 -include("mmm_rest_api_records.hrl").
 
-init(Args) ->
-    {ok, Args}.
+init(_Args) ->
+    {ok, []}.
 
 terminate(_Args, _State) ->
     ok.
