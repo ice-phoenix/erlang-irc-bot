@@ -27,7 +27,7 @@ $(SRCDIR)/%.erl: $(SRCDIR)/%.peg
 	erl -noshell -eval 'neotoma:file("$<").' -s erlang halt
 
 $(OBJDIRS):
-	mkdir $@
+	mkdir -p $@
 
 $(OBJDIR)/%.app: $(SRCDIR)/%.app.src
 	cp $< $@
