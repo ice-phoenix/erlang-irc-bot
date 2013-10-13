@@ -40,14 +40,15 @@ handle_event(Msg, State) ->
         {in, Ref, [_Sender, _User, <<"PRIVMSG">>, <<_Receiver/binary>>, <<"!join ",Channel/binary>>]} ->
             Ref:join(<<Channel/binary>>),
             {ok, State};
-        {in, Ref, [_Sender, _User, <<"PRIVMSG">>, <<"#",Receiver/binary>>, <<"!part">>]} ->
-            Ref:part(<<"#",Receiver/binary>>),
+        {in, Ref, [_Sender, _User, <<"PRIVMSG">>, <<"#",Channel/binary>>, <<"!part">>]} ->
+            Ref:part(<<"#",Channel/binary>>),
             {ok, State};
         {in, Ref, [Sender, _User, <<"PRIVMSG">>, <<Receiver/binary>>, <<"!",Cmd/binary>>]} ->
-            NewState = case Receiver of
-                <<"#",_Channel/binary>> -> process_cmd(State, Ref, Sender, Receiver, Cmd);
-                _ ->                       process_cmd(State, Ref, Sender, Sender,   Cmd)
+            Channel = case Receiver of
+                <<"#",_/binary>> -> Receiver;
+                _ -> Sender
             end,
+            NewState = process_cmd(State, Ref, Sender, Channel, Cmd),
             {ok, NewState};
         _ ->
             {ok, State}
