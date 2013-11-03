@@ -43,23 +43,23 @@ handle_event(Msg, State) ->
         {in, Ref, [_Sender, _User, <<"PRIVMSG">>, <<"#",Channel/binary>>, <<"!part">>]} ->
             Ref:part(<<"#",Channel/binary>>),
             {ok, State};
-        {in, Ref, [Sender, _User, <<"PRIVMSG">>, <<Receiver/binary>>, <<"!",Cmd/binary>>]} ->
+        {in, Ref, [Sender, _User, <<"PRIVMSG">>, <<Receiver/binary>>, <<"!",Rest/binary>>]} ->
+            Cmd = binary_to_list(Rest),
             Channel = case Receiver of
                 <<"#",_/binary>> -> Receiver;
                 _ -> Sender
             end,
-            NewState = process_cmd(State, Ref, Sender, Channel, Cmd),
+            NewState = process_command(Cmd, State, Ref, Sender, Channel),
             {ok, NewState};
         _ ->
             {ok, State}
     end.
 
-process_cmd(State, Ref, Nick, Receiver, Cmd) ->
-    Processed = dicer:parse_and_process(binary_to_list(Cmd), Receiver, State),
+process_command(Cmd, State, Ref, Nick, Receiver) ->
+    Processed = dicer:parse_and_process(Cmd, Receiver, State),
     case Processed of
         {fail, _} ->
-            Ref:privmsg(<<Receiver/binary>>,
-                        "WTF???"),
+            Ref:privmsg(<<Receiver/binary>>, "WTF???"),
             State;
         {ok, {Results, NewState}} ->
             lists:foreach(

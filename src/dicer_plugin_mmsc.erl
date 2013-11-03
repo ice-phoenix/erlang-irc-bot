@@ -15,60 +15,53 @@
 
 -include("mmm_rest_api_records.hrl").
 
-init(_Args) ->
-    {ok, []}.
+init(Args) ->
+    {ok, Args}.
 
 terminate(_Args, _State) ->
     ok.
 
 handle_event(Msg, State) ->
     case Msg of
-        {in, Ref, [Sender,
-                   _User,
-                   <<"PRIVMSG">>,
-                   <<Receiver/binary>>,
-                   <<"$",Rest/binary>>]} ->
+        {in, Ref, [Nick, _Name, <<"PRIVMSG">>, <<Receiver/binary>>, <<"$",Rest/binary>>]} ->
             Cmd = binary_to_list(Rest),
-            NewState = case Receiver of
-                <<"#",_Channel/binary>> ->
-                    process_command(Cmd, State, Ref, Sender, Receiver);
-                _ ->
-                    process_command(Cmd, State, Ref, Sender, Sender)
+            Channel = case Receiver of
+                <<"#",_/binary>> -> Receiver;
+                _ -> Nick
             end,
+            NewState = process_command(Cmd, State, Ref, Nick, Channel),
             {ok, NewState};
         _ ->
             {ok, State}
     end.
 
-process_command("servers", State, Ref, _Nick, Receiver) ->
+process_command("servers", State, Ref, _Nick, Channel) ->
     User = proplists:get_value(user, State),
     Pass = proplists:get_value(pass, State),
     Url = proplists:get_value(url, State),
     Servers = mmm_rest_api:get_servers(User, Pass, Url),
     FServers = lists:filter(
-        fun(E) -> E#server.empty == false end,
-        Servers
-    ),
+        fun(Srv) -> Srv#server.empty == false end,
+        Servers),
     case length(FServers) of
-        0 -> Ref:privmsg(<<Receiver/binary>>, "Nobody's home...");
+        0 -> Ref:privmsg(<<Channel/binary>>, "Nobody's home...");
         _ -> lists:foreach(
-                 fun(E) -> send_server_status_msg(State, E, Ref, Receiver) end,
-                 FServers
-             )
+                 fun(Srv) -> send_server_status_msg(State, Srv, Ref, Channel) end,
+                 FServers)
     end,
     State;
 
-process_command(_Cmd, State, _Ref, _Nick, _Receiver) ->
+process_command(_Cmd, State, _Ref, _Nick, _Channel) ->
     State.
 
-send_server_status_msg(_State, Server, Ref, Receiver) ->
+send_server_status_msg(_State, Server, Ref, Channel) ->
     Msg = io_lib:format("~B (~s): ~s",
         [
             Server#server.port,
             Server#server.status,
             string:join(Server#server.players, ", ")
         ]),
-    Ref:privmsg(<<Receiver/binary>>, Msg).
+    Ref:privmsg(<<Channel/binary>>, Msg).
 
 handle_call(_Request, State) ->
     {ok, not_implemented, State}.

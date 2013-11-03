@@ -7,4 +7,4 @@
 -record(roll_cmd, {tree = {none}}).
 -record(deck_cmd, {tree = {none}}).
 
--record(result, {msgs=[], color = none, scope = none}).
+-record(result, {msgs=[], scope = none, color = none}).
