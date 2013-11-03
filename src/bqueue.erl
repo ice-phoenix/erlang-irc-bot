@@ -13,6 +13,8 @@
     from_list/2,
     to_list/1,
     reverse/1,
+    split/2,
+    join/2,
     filter/2,
     member/2
 ]).
@@ -173,6 +175,40 @@ reverse(#bq{q = Q1} = BQ) ->
     BQ#bq{q = queue:reverse(Q1)};
 
 reverse(_BQ) ->
+    {badarg, invalid_queue}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% bqueue:split/2
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+split(N, #bq{size = Size, q = Q1} = BQ) when N >= 0 ->
+    {SQ1, SQ2} = queue:split(N, Q1),
+    {Size1, Size2} = case Size > N of
+        true -> {N, Size - N};
+        false -> {Size, 0}
+    end,
+    {
+        BQ#bq{size = Size1, q = SQ1},
+        BQ#bq{size = Size2, q = SQ2}
+    };
+
+split(_N, #bq{} = _BQ) ->
+    {badarg, invalid_split_size};
+
+split(_N, _BQ) ->
+    {badarg, invalid_queue}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% bqueue:join/2
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+join(
+        #bq{bound = Bound1, size = Size1, q = Q1} = _BQ1,
+        #bq{bound = Bound2, size = Size2, q = Q2} = _BQ2
+) ->
+    #bq{bound = Bound1 + Bound2, size = Size1 + Size2, q = queue:join(Q1, Q2)};
+
+join(_BQ1, _BQ2) ->
     {badarg, invalid_queue}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
