@@ -37,50 +37,50 @@ terminate(_Args, _State) ->
 
 handle_event(Msg, State) ->
     case Msg of
-        {in, Ref, [_Sender, _User, <<"PRIVMSG">>, <<_Receiver/binary>>, <<"!join ",Channel/binary>>]} ->
+        {in, Ref, [_Nick, _Name, <<"PRIVMSG">>, <<_Receiver/binary>>, <<"!join ",Channel/binary>>]} ->
             Ref:join(<<Channel/binary>>),
             {ok, State};
-        {in, Ref, [_Sender, _User, <<"PRIVMSG">>, <<"#",Channel/binary>>, <<"!part">>]} ->
+        {in, Ref, [_Nick, _Name, <<"PRIVMSG">>, <<"#",Channel/binary>>, <<"!part">>]} ->
             Ref:part(<<"#",Channel/binary>>),
             {ok, State};
-        {in, Ref, [Sender, _User, <<"PRIVMSG">>, <<Receiver/binary>>, <<"!",Rest/binary>>]} ->
+        {in, Ref, [Nick, _Name, <<"PRIVMSG">>, <<Receiver/binary>>, <<"!",Rest/binary>>]} ->
             Cmd = binary_to_list(Rest),
             Channel = case Receiver of
                 <<"#",_/binary>> -> Receiver;
-                _ -> Sender
+                _ -> Nick
             end,
-            NewState = process_command(Cmd, State, Ref, Sender, Channel),
+            NewState = process_command(Cmd, State, Ref, Nick, Channel),
             {ok, NewState};
         _ ->
             {ok, State}
     end.
 
-process_command(Cmd, State, Ref, Nick, Receiver) ->
-    Processed = dicer:parse_and_process(Cmd, Receiver, State),
+process_command(Cmd, State, Ref, Nick, Channel) ->
+    Processed = dicer:parse_and_process(Cmd, Channel, State),
     case Processed of
         {fail, _} ->
-            Ref:privmsg(<<Receiver/binary>>, "WTF???"),
+            Ref:privmsg(<<Channel/binary>>, "WTF???"),
             State;
         {ok, {Results, NewState}} ->
             lists:foreach(
-                fun(Res) -> process_result(State, Res, Ref, Nick, Receiver) end,
+                fun(Res) -> process_result(State, Res, Ref, Nick, Channel) end,
                 Results),
             NewState
     end.
 
-process_result(State, Result, Ref, Nick, Receiver) ->
+process_result(State, Result, Ref, Nick, Channel) ->
     #result{msgs = Msgs, color = Color, scope = Scope} = Result,
     lists:foreach(
         fun(Msg) ->
             case Scope of
-                public  -> send_msg(State, Msg, Color, Ref,  Nick, Receiver);
+                public  -> send_msg(State, Msg, Color, Ref,  Nick, Channel);
                 private -> send_msg(State, Msg, Color, Ref, "You", Nick)
             end
         end,
         Msgs).
 
-send_msg(State, Msg, Color, Ref, Nick, Receiver) ->
-    Ref:privmsg(<<Receiver/binary>>, format_msg(State, Nick, Msg, Color)).
+send_msg(State, Msg, Color, Ref, Nick, Channel) ->
+    Ref:privmsg(<<Channel/binary>>, format_msg(State, Nick, Msg, Color)).
 
 format_msg(State, Nick, Msg, Color) ->
     BaseMsg = io_lib:format("~s ~s", [Nick, Msg]),
