@@ -69,7 +69,7 @@ process_command(Cmd, State, Ref, Nick, Channel) ->
     end.
 
 process_result(State, Result, Ref, Nick, Channel) ->
-    #result{msgs = Msgs, color = Color, scope = Scope} = Result,
+    #result{msgs = Msgs, scope = Scope, color = Color} = Result,
     lists:foreach(
         fun(Msg) ->
             case Scope of
