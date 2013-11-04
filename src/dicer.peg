@@ -243,7 +243,7 @@ deck({shuffle}, State) ->
     {ok, #result{msgs = ["shuffled the deck"]}, State#channel_state{deck=create_new_deck()}};
 
 deck({deal, Count}, State) when Count > ?DEAL_MAX ->
-    throw({fail, deal_number_too_big});
+    throw({fail, deal_count_too_big});
 
 deck({deal, Count}, State) ->
     {ok, Msgs, NewDeck} = deal_aux(Count, State#channel_state.deck, []),
@@ -255,13 +255,13 @@ deck(_Tree, _State) ->
 deal_aux(Count, Deck, Msgs) ->
     Length = length(Deck),
     {Cards, NewDeck} = case Length > Count of
-        false -> {Deck, []};
-        true -> lists:split(Count, Deck)
+        true -> lists:split(Count, Deck);
+        false -> {Deck, []}
     end,
     NewMsgs = Msgs ++ lists:map(fun(E) -> io_lib:format("dealt ~s", [E]) end, Cards),
     case Length > Count of
-        false -> deal_aux(Count - Length, create_new_deck(), NewMsgs ++ ["reshuffled the deck (no cards left)"]);
-        true -> {ok, NewMsgs, NewDeck}
+        true -> {ok, NewMsgs, NewDeck};
+        false -> deal_aux(Count - Length, create_new_deck(), NewMsgs ++ ["reshuffled the deck (no cards left)"])
     end.
 
 create_new_deck() ->
@@ -318,6 +318,7 @@ process_tree(Tree) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Die throwing
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 throw_die(Faces) ->
     Roll = random:uniform(Faces),
     {Roll, pprint(Roll)}.
@@ -341,11 +342,12 @@ throw_open_die_aux(Faces, Rolls) ->
 
 throw_wild_die(Faces) ->
     {R, D} = throw_open_die(Faces),
-    {R, D ++ "*"}.
+    {R, D ++ "WD"}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Check rolls for validity
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 process_tree_aux({die, Count, Faces}) when Count > ?MAX;
                                            Faces > ?MAX ->
     throw(number_too_big);
@@ -363,6 +365,7 @@ process_tree_aux({open_die, Count, Faces}) when Faces < ?MIN ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Roll die tree
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 process_tree_aux({sum, Rolls}) ->
     {R, D} = process_tree_aux(Rolls),
     {lists:sum(R), D};
@@ -371,8 +374,7 @@ process_tree_aux({keep, Keep, Dice}) ->
     Results = lists:flatmap(fun(Die) -> process_tree_aux(Die) end,
                             Dice),
     SortedResults = sort_rolls(Results),
-    {R, D} = lists:unzip(SortedResults),
-    {Rolls, Descs} = {R, D},
+    {Rolls, Descs} = lists:unzip(SortedResults),
     KeptRolls = lists:sublist(Rolls, 1, Keep),
     KeptDescs = lists:sublist(Descs, 1, Keep),
     RestDescs = lists:sublist(Descs, Keep + 1, ?MAX),
@@ -386,21 +388,16 @@ process_tree_aux({Type, Count, Faces}) when Type == die;
                                             Type == wild_die ->
     FaceList = lists:duplicate(Count, Faces),
     Rolls = case Type of
-        die ->
-            lists:map(fun(Face) -> throw_die(Face) end,
-                      FaceList);
-        open_die ->
-            lists:map(fun(Face) -> throw_open_die(Face) end,
-                      FaceList);
-        wild_die ->
-            lists:map(fun(Face) -> throw_wild_die(Face) end,
-                      FaceList)
+        die ->      lists:map(fun(Face) -> throw_die(Face) end,      FaceList);
+        open_die -> lists:map(fun(Face) -> throw_open_die(Face) end, FaceList);
+        wild_die -> lists:map(fun(Face) -> throw_wild_die(Face) end, FaceList)
     end,
     sort_rolls(Rolls);
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Arithmetics
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 process_tree_aux(Number) when is_integer(Number) ->
     {Number, pprint(Number)};
 
@@ -422,6 +419,7 @@ process_tree_aux({times, Arg1, Arg2}) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Addition
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 sum(Arg1, Arg2) when is_list(Arg1), is_number(Arg2) ->
     lists:map(fun(A) -> A + Arg2 end, Arg1);
 
@@ -437,11 +435,12 @@ sum(Arg1, Arg2) when is_number(Arg1), is_number(Arg2) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Subtraction
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 sub(Arg1, Arg2) when is_list(Arg1), is_number(Arg2) ->
     lists:map(fun(A) -> A - Arg2 end, Arg1);
 
 sub(Arg1, Arg2) when is_list(Arg2), is_number(Arg1) ->
-    sub(Arg2, Arg1);
+    lists:map(fun(A) -> Arg1 - A end, Arg2);
 
 sub(Arg1, Arg2) when is_list(Arg1), is_list(Arg2) ->
     lists:zipwith(fun(A, B) -> A - B end, Arg1, Arg2);
@@ -452,6 +451,7 @@ sub(Arg1, Arg2) when is_number(Arg1), is_number(Arg2) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Multiplication
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 mul(Arg1, Arg2) when is_list(Arg1), is_number(Arg2) ->
     lists:map(fun(A) -> A * Arg2 end, Arg1);
 
@@ -465,10 +465,8 @@ mul(Arg1, Arg2) when is_number(Arg1), is_number(Arg2) ->
     Arg1 * Arg2.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Pprint the results
+% Pretty print the results
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% pprint(Term, Sep) ->
-%     pprint_aux(Term, "", Sep).
 
 pprint(Term) ->
     pprint_aux(Term, "", ",").
@@ -480,20 +478,21 @@ pprint_aux([Number], Str, Sep) when is_integer(Number) ->
     Str ++ io_lib:format("~B", [Number]);
 
 pprint_aux([Number | T], Str, Sep) when is_integer(Number) ->
-    pprint_aux(T, Str ++ io_lib:format("~B,", [Number]), Sep);
+    pprint_aux(T, Str ++ io_lib:format("~B", [Number]) ++ Sep, Sep);
 
 pprint_aux([Term], Str, Sep) ->
     Str ++ Term;
 
-pprint_aux([], Str, Sep) ->
-    Str;
-
 pprint_aux([Term | T], Str, Sep) ->
-    pprint_aux(T, Str ++ Term ++ Sep, Sep).
+    pprint_aux(T, Str ++ Term ++ Sep, Sep);
+
+pprint_aux([], Str, Sep) ->
+    Str.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Sort rolls
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 sort_rolls(Rolls) when is_list(Rolls) ->
     lists:sort(
         fun({R1, D1}, {R2, D2}) -> R1 > R2 end,
